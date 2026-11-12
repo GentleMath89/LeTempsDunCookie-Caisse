@@ -22,7 +22,9 @@ header { background: #fecfb5; color: var(--brown); position: sticky; top: 0; z-i
 .brand { display: flex; justify-content: center; padding: 4px 14px 0; }
 .brand img { height: 50px; width: auto; display: block; }
 header { position: sticky; }
-.tools { position: absolute; top: 4px; right: 4px; display: flex; }
+.tools { position: absolute; top: 4px; display: flex; }
+.tools.left { left: 4px; }
+.tools.right { right: 4px; }
 .tool {
   width: 38px; height: 38px; border: 0; background: transparent; border-radius: 50%;
   color: var(--brown); opacity: .75; display: flex; align-items: center; justify-content: center; padding: 0;
@@ -30,12 +32,13 @@ header { position: sticky; }
 .tool:active { background: rgba(0,0,0,.1); opacity: 1; }
 .tool svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .backbar { text-align: center; font-size: 11.5px; color: rgba(59,36,24,.7); padding: 1px 8px 4px; }
+.backbar .ver { opacity: .75; font-weight: 400; white-space: nowrap; }
 .backbar.warn { color: #a8410d; font-weight: 600; }
 .backbar .link { background: none; border: 0; padding: 0 2px; font: inherit; color: #a8410d; text-decoration: underline; font-weight: 600; }
 nav { display: flex; }
 nav button {
-  flex: 1; border: 0; background: transparent; color: rgba(59,36,24,.65);
-  padding: 10px 0; font-size: 15px; border-bottom: 3px solid transparent;
+  flex: 1 1 0; min-width: 0; border: 0; background: transparent; color: rgba(59,36,24,.65);
+  padding: 10px 0; font-size: 12.5px; letter-spacing: -.2px; border-bottom: 3px solid transparent; white-space: nowrap;
 }
 nav button.active { color: var(--brown); border-bottom-color: #e8892b; font-weight: 700; }
 main { padding: 12px; max-width: 640px; margin: 0 auto; }
@@ -159,7 +162,45 @@ dialog { border: 0; border-radius: 14px; padding: 16px; width: min(92vw, 420px);
 dialog::backdrop { background: rgba(0,0,0,.45); }
 dialog h2 { margin: 0 0 10px; font-size: 18px; }
 
+/* La notification est un « popover » : elle s'affiche AU-DESSUS des fenêtres ouvertes (sinon elle serait masquée). */
 .toast {
-  position: fixed; left: 50%; bottom: 160px; transform: translateX(-50%);
+  position: fixed; top: auto; right: auto; left: 50%; bottom: 160px; margin: 0; border: 0; transform: translateX(-50%);
+  width: max-content; max-width: 90vw; overflow: visible;
   background: #222; color: #fff; padding: 10px 16px; border-radius: 999px; z-index: 20; font-size: 14px;
 }
+.toast:empty { display: none; }
+
+/* Commandes */
+.chips { display: flex; gap: 6px; margin: 12px 0; }
+.chips button { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 9px 4px; font-size: 14px; color: var(--text); }
+.chips button.active { background: #e5f3ea; border-color: var(--green); color: var(--green); font-weight: 700; }
+.orders { list-style: none; padding: 0; margin: 0; }
+.order { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 5px solid #e8892b; }
+.order.paid { border-left-color: var(--green); }
+.ohead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.odate { font-weight: 700; text-transform: capitalize; }
+.odate.late { color: #b3282d; }
+.ostatus { font-size: 12.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.ostatus.due { background: #fdebd2; color: #8a4b0f; }
+.ostatus.ok { background: #e5f3ea; color: var(--green); }
+.oname { font-size: 17px; font-weight: 700; margin: 4px 0 2px; }
+.olines { color: var(--text); font-size: 14.5px; line-height: 1.4; }
+.oremark { margin-top: 4px; font-size: 14px; color: var(--muted); font-style: italic; }
+.otot { margin-top: 6px; font-size: 18px; font-weight: 700; }
+.oact { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.oact button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 11px 6px; font-size: 15px; color: var(--text); }
+.oact button.paybtn { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+.row2 { display: flex; gap: 8px; }
+.row2 label { flex: 1; }
+textarea { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; width: 100%; background: #fff; margin-top: 4px; resize: vertical; color: var(--text); }
+#dlg-order { max-height: 92vh; overflow-y: auto; }
+#dlg-order .sec { margin: 10px 2px 6px; }
+.ordline { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-bottom: 5px; }
+.ordline .pn { flex: 1; font-weight: 600; }
+.ordline .qty { display: flex; align-items: center; gap: 6px; }
+.ordline .qty button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: #fff; font-size: 20px; line-height: 1; }
+.ordtotal { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; margin: 12px 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.paymodes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+/* Aucun mode présélectionné : boutons neutres, qui ne passent au vert qu'à l'appui */
+.paymodes button { background: #fff; border: 2px solid var(--line); border-radius: 12px; padding: 16px 6px; font-size: 17px; font-weight: 600; color: var(--text); }
+.paymodes button:active { background: #e5f3ea; border-color: var(--green); color: var(--green); }

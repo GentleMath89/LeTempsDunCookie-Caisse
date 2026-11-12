@@ -10,8 +10,10 @@ historique, dépenses, exports CSV, sauvegarde et restauration par fichier JSON.
 
 ## Pour le développement
 
-- Fichiers : `index.html`, `style.css`, `app.js`, `manifest.json`, `sw.js`, `logo.png`, `icons/`.
-- **À chaque modification de l'appli, augmenter `VERSION` dans `sw.js`** : c'est ce qui
-  déclenche la mise à jour sur les téléphones.
+- Fichiers : `index.html`, `style.css`, `app.js`, `version.js`, `manifest.json`, `sw.js`, `logo.png`, `icons/`.
+- **À chaque publication, changer le numéro dans `version.js`** (`APP_VERSION`, format
+  MAJEUR.MINEUR.CORRECTIF). Il s'affiche dans le bandeau de l'appli et déclenche la mise à jour
+  sur les téléphones. Nouvelle fonctionnalité → MINEUR ; correction → CORRECTIF.
+- Tout nouveau fichier de l'appli doit être ajouté à la liste `ASSETS` de `sw.js` (cache hors ligne).
 - Ne jamais ajouter au dépôt de sauvegardes ni d'exports (ventes, noms de clients) :
   le `.gitignore` les exclut.

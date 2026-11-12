@@ -4,40 +4,79 @@ const STORAGE_KEY = "caisse-marche-v1";
 const DATA_VERSION = 2;
 const PAY_MODES = ["Espèces", "CB", "PayPal", "Wero"];
 const DEFAULT_PAY = "Espèces";
+const SOLD_OUT = "Épuisé";          // mention affichée pour un produit inactif (libellé par défaut)
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 /* ---------- Données ---------- */
 const COOKIE_VARIANTS = [
-  "Le Pécan", "Le Trois Chocolats", "Le Cacahuète", "Le Pistache", "Le Speculoos",
+  "Le Pécan", "Le Trois Chocolats", "Le Cacahuète", "Le Pistache", "Le Spéculoos",
   "Le Rico", "Le Marshall", "Le Noisette", "L'Edition Limitée",
 ];
 const DEFAULT_OTHERS = [
   { id: "p4", name: "Sachet de chocolats", price: 800 },
-  { id: "p5", name: "Pack cadeau M", price: 1000 },
-  { id: "p6", name: "Pack cadeau L", price: 2000 },
+  { id: "p5", name: "Coffret petit format", price: 1000 },
+  { id: "p6", name: "Coffret grand format", price: 2000 },
+  { id: "p7", name: "Thé", price: 100 },
+  { id: "p8", name: "Café", price: 100 },
 ];
 // Prix TOTAL pour 1 à 8 cookies, puis prix de chaque cookie supplémentaire à partir du 9e.
 const DEFAULT_PRICING = { totals: [300, 600, 900, 1100, 1400, 1700, 2000, 2000], extra: 250 };
 
 const isCookie = (p) => p.family === "cookie";
+const CATALOG_REV = 2;     // 1 = Thé et Café ajoutés · 2 = Spéculoos et coffrets renommés
+const RENAMES = [          // anciens noms par défaut → nouveaux (uniquement si le produit porte encore son ancien nom)
+  { id: "v5", from: "Le Speculoos", to: "Le Spéculoos" },
+  { id: "p5", from: "Pack cadeau M", to: "Coffret petit format" },
+  { id: "p6", from: "Pack cadeau L", to: "Coffret grand format" },
+];
 const freshState = () => ({
   version: DATA_VERSION,
+  catalogRev: CATALOG_REV,
   products: [
     ...COOKIE_VARIANTS.map((name, i) => ({ id: "v" + (i + 1), name, price: null, family: "cookie", active: true })),
     ...DEFAULT_OTHERS.map((p) => ({ ...p, family: null, active: true })),
   ],
   sales: [],
   expenses: [],
+  orders: [],
   cookiePricing: { totals: [...DEFAULT_PRICING.totals], extra: DEFAULT_PRICING.extra },
 });
+
+/* Évolutions du catalogue par défaut, appliquées UNE seule fois par jeu de données (catalogRev) :
+ * - rev 1 : ajout de « Thé » et « Café » (pas de doublon si le nom existe déjà ; supprimés ensuite, ils ne reviennent pas) ;
+ * - rev 2 : renommages (Spéculoos, coffrets), seulement si le produit porte encore son ancien nom ;
+ *   les ventes et commandes déjà enregistrées reprennent alors le nouveau nom, pour ne pas scinder les totaux de l'Historique. */
+function ensureCatalog(st) {
+  const rev = st.catalogRev || 0;
+  if (rev >= CATALOG_REV) return false;
+  if (rev < 1) {
+    DEFAULT_OTHERS.filter((a) => ["p7", "p8"].includes(a.id)).forEach((a) => {
+      if (st.products.some((p) => p.name.trim().toLowerCase() === a.name.toLowerCase())) return;
+      const id = st.products.some((p) => p.id === a.id) ? a.id + Date.now().toString(36) : a.id;
+      st.products.push({ id, name: a.name, price: a.price, family: null, active: true });
+    });
+  }
+  if (rev < 2) {
+    RENAMES.forEach((r) => {
+      const p = st.products.find((x) => x.id === r.id && x.name === r.from);
+      if (!p) return;
+      p.name = r.to;
+      const fix = (arr) => (arr || []).forEach((i) => { if (i.name === r.from) i.name = r.to; });
+      (st.sales || []).forEach((s) => fix(s.items));
+      (st.orders || []).forEach((o) => fix(o.lines));
+    });
+  }
+  st.catalogRev = CATALOG_REV;
+  return true;
+}
 
 /* Anciennes données (v1 : produits « 1 / 4 / 8 cookies ») → v2 */
 function migrate(s) {
   const kept = s.products.filter((p) => !(["p1", "p2", "p3"].includes(p.id) && /cookies?$/i.test(p.name)));
   const fresh = freshState();
-  return {
+  const m = {
     version: DATA_VERSION,
     products: [
       ...fresh.products.filter(isCookie),
@@ -45,8 +84,11 @@ function migrate(s) {
     ],
     sales: s.sales,
     expenses: s.expenses || [],
+    orders: s.orders || [],
     cookiePricing: fresh.cookiePricing,
   };
+  ensureCatalog(m);
+  return m;
 }
 
 let state = load();
@@ -65,6 +107,8 @@ function load() {
       if (Array.isArray(s.products) && Array.isArray(s.sales)) {
         if (s.version !== DATA_VERSION || !s.cookiePricing) { const m = migrate(s); persist(m); return m; }
         if (!Array.isArray(s.expenses)) s.expenses = [];      // données créées avant l'onglet Dépenses
+        if (!Array.isArray(s.orders)) s.orders = [];          // données créées avant l'onglet Commandes
+        if (ensureCatalog(s)) persist(s);                     // Thé et Café, une seule fois
         return s;
       }
     }
@@ -100,9 +144,11 @@ const timeStr = (ts) => TIME_FMT.format(ts);
 let toastTimer;
 function toast(msg) {
   const t = $("toast");
-  t.textContent = msg; t.hidden = false;
+  t.textContent = msg;
+  // popover : s'affiche au-dessus des fenêtres ouvertes (les messages de validation y restaient invisibles)
+  try { if (t.matches(":popover-open")) t.hidePopover(); t.showPopover(); } catch (e) { /* navigateur sans popover : affichage normal */ }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 1800);
+  toastTimer = setTimeout(() => { try { t.hidePopover(); } catch (e) { t.textContent = ""; } }, 1800);
 }
 
 /* Prix total de n cookies selon la grille du catalogue */
@@ -129,9 +175,10 @@ function askConfirm(msg) {
 /* ---------- Onglets ---------- */
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
-  ["vente", "histo", "depenses", "catalogue"].forEach((t) => ($("tab-" + t).hidden = t !== name));
+  ["vente", "commandes", "histo", "depenses", "catalogue"].forEach((t) => ($("tab-" + t).hidden = t !== name));
   $("checkout").hidden = name !== "vente";
   if (name === "vente") renderAll();
+  if (name === "commandes") renderOrders();
   if (name === "histo") renderHisto();
   if (name === "depenses") renderExpenses();
   renderBackupBar();
@@ -151,7 +198,7 @@ function productRow(p) {
   b.className = "prow" + (p.active ? "" : " off") + (noPrice ? " noprice" : "");
   b.setAttribute("role", "button");
   b.innerHTML = `<span class="pn">${esc(p.name)}</span>` +
-    `<span class="pp">${!p.active ? "désactivé" : isCookie(p) ? "" : p.price == null ? "prix à définir" : eur(p.price)}</span>` +
+    `<span class="pp">${!p.active ? SOLD_OUT : isCookie(p) ? "" : p.price == null ? "prix à définir" : eur(p.price)}</span>` +
     (line ? `<button class="minus" aria-label="Retirer un">−</button>` : "") +
     `<span class="badge${line ? "" : " zero"}">${line ? line.qty : ""}</span>`;
   b.addEventListener("click", () => addProduct(p));
@@ -202,7 +249,7 @@ function renderGrid() {
   other.setAttribute("role", "button");
   other.className = "prow other";
   other.innerHTML = `<span class="pn">＋ Autre</span><span class="pp">Saisie libre</span>`;
-  other.addEventListener("click", openOther);
+  other.addEventListener("click", () => openOther("cart"));
   g.appendChild(other);
 }
 
@@ -292,7 +339,9 @@ $("btn-pay").addEventListener("click", () => {
 
 /* "Autre" */
 let otherCount = 0;
-function openOther() {
+let otherTarget = "cart";           // "cart" (écran Vente) ou "order" (éditeur de commande)
+function openOther(target = "cart") {
+  otherTarget = target;
   $("other-label").value = "";
   $("other-price").value = "";
   $("other-neg").checked = false;
@@ -305,8 +354,13 @@ $("form-other").addEventListener("submit", (e) => {
   if (price == null || price === 0) { e.preventDefault(); toast("Montant invalide"); return; }
   if ($("other-neg").checked) price = -Math.abs(price);          // case « Réduction » ou saisie « -5 »
   const name = $("other-label").value.trim() || (price < 0 ? "Réduction" : "Autre");
-  cart.push({ key: "other-" + ++otherCount, name, price, qty: 1, family: null });
-  renderAll();
+  if (otherTarget === "order" && orderDraft) {
+    orderDraft.others.push({ name, price, qty: 1 });
+    renderOrderEditor();
+  } else {
+    cart.push({ key: "other-" + ++otherCount, name, price, qty: 1, family: null });
+    renderAll();
+  }
 });
 
 /* ---------- Historique ---------- */
@@ -510,7 +564,7 @@ function renderList(ul, cookieList) {
     li.innerHTML = `<span class="handle" title="Glisser pour réordonner">☰</span>
       <input class="pname" value="${esc(p.name)}" aria-label="Nom">
       ${cookieList ? "" : `<input class="pprice" inputmode="decimal" placeholder="prix €" value="${p.price == null ? "" : csvNum(p.price)}" aria-label="Prix">`}
-      <button class="tgl ${p.active ? "on" : ""}" aria-label="Activer ou désactiver">${p.active ? "Actif" : "Off"}</button>
+      <button class="tgl ${p.active ? "on" : ""}" aria-label="Disponible ou épuisé">${p.active ? "Actif" : SOLD_OUT}</button>
       <button class="del" aria-label="Supprimer">🗑</button>`;
     const name = li.querySelector(".pname");
     name.addEventListener("change", () => { p.name = name.value.trim() || "Sans nom"; name.value = p.name; save(); });
@@ -612,6 +666,335 @@ $("btn-add").addEventListener("click", () => {
   last.focus(); last.select();
 });
 
+/* ---------- Commandes ----------
+ * Une commande = date + heure + nom + remarques + lignes (variantes de cookies et lignes « Autre »).
+ * Le statut Payé / À payer est DÉDUIT de l'existence de la vente liée (saleId) : si la vente est supprimée
+ * de l'Historique, la commande repasse toute seule à « À payer ». */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const DATE_LONG = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+const DATE_SHORT = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" });
+const timeFr = (t) => t.replace(":", "h");
+const orderSale = (o) => (o.saleId ? state.sales.find((s) => s.id === o.saleId) || null : null);
+const orderStart = (o) => {
+  const [y, m, d] = o.date.split("-").map(Number);
+  const [hh, mm] = o.time.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm);
+};
+let ordersFilter = "upcoming";        // upcoming (date ≥ aujourd'hui) | past (date < aujourd'hui) | all
+
+/* Lignes de la commande en texte (message WhatsApp, description de l'événement) */
+function orderLinesText(o) {
+  const out = [];
+  const cook = o.lines.filter((l) => l.family === "cookie");
+  if (cook.length) {
+    const n = o.cookies ? o.cookies.qty : cook.reduce((s, l) => s + l.qty, 0);
+    out.push(`• ${n} cookie${n > 1 ? "s" : ""} : ` + cook.map((l) => `${l.qty} × ${l.name}`).join(", "));
+  }
+  o.lines.filter((l) => l.family !== "cookie").forEach((l) => out.push(`• ${l.qty} × ${l.name} (${eur(l.price * l.qty)})`));
+  return out;
+}
+
+function renderOrders() {
+  document.querySelectorAll("#ofilter button").forEach((b) => b.classList.toggle("active", b.dataset.f === ordersFilter));
+  const today = dayKey(Date.now());
+  // À venir : la plus proche d'abord · Passées : la plus récente d'abord · Toutes : la plus tardive d'abord
+  const list = state.orders
+    .filter((o) => ordersFilter === "all" || (ordersFilter === "past" ? o.date < today : o.date >= today))
+    .sort((a, b) => {
+      const k = (a.date + a.time).localeCompare(b.date + b.time);
+      return ordersFilter === "upcoming" ? k : -k;
+    });
+  const ul = $("orders");
+  ul.innerHTML = "";
+  if (!list.length) {
+    ul.innerHTML = `<li class="empty">${ordersFilter === "past" ? "Aucune commande passée." : ordersFilter === "upcoming" ? "Aucune commande à venir." : "Aucune commande."}</li>`;
+    return;
+  }
+  list.forEach((o) => {
+    const sale = orderSale(o);
+    const li = document.createElement("li");
+    li.className = "order" + (sale ? " paid" : "");
+    const when = o.date === today ? "Aujourd'hui" : DATE_SHORT.format(orderStart(o));
+    const late = !sale && o.date < today;
+    li.innerHTML =
+      `<div class="ohead"><span class="odate${late ? " late" : ""}">${esc(when)} · ${esc(timeFr(o.time))}</span>` +
+      `<span class="ostatus ${sale ? "ok" : "due"}">${sale ? "Payé · " + esc(sale.pay) : "À payer"}</span></div>` +
+      `<div class="oname">${o.name ? esc(o.name) : "<i>Sans nom</i>"}</div>` +
+      `<div class="olines">${orderLinesText(o).map(esc).join("<br>")}</div>` +
+      (o.remarks ? `<div class="oremark">📝 ${esc(o.remarks)}</div>` : "") +
+      `<div class="otot">${eur(o.total)}</div>` +
+      `<div class="oact">` +
+      (sale ? `<button type="button" data-a="unpay">Annuler le paiement</button>` : `<button type="button" class="paybtn" data-a="pay">Payé</button>`) +
+      `<button type="button" data-a="wa">WhatsApp</button><button type="button" data-a="ics">Agenda</button><button type="button" data-a="edit">Éditer</button></div>`;
+    const act = (a, fn) => li.querySelector(`[data-a=${a}]`).addEventListener("click", fn);
+    if (sale) act("unpay", () => unpayOrder(o)); else act("pay", () => askPayMode(o));
+    act("wa", () => sendWhatsApp(o));
+    act("ics", () => exportIcs(o));
+    act("edit", () => openOrder(o));
+    ul.appendChild(li);
+  });
+}
+document.querySelectorAll("#ofilter button").forEach((b) => b.addEventListener("click", () => { ordersFilter = b.dataset.f; renderOrders(); }));
+
+/* ----- Paiement : crée immédiatement la vente liée ----- */
+let payingOrderId = null;
+function askPayMode(o) {
+  payingOrderId = o.id;
+  $("paymode-info").textContent = `${o.name || "Commande"} · ${eur(o.total)}`;
+  const box = $("paymode-btns");
+  box.innerHTML = "";
+  PAY_MODES.forEach((m) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = m;
+    b.addEventListener("click", () => { $("dlg-paymode").close(); markOrderPaid(payingOrderId, m); });
+    box.appendChild(b);
+  });
+  $("dlg-paymode").showModal();
+}
+$("paymode-cancel").addEventListener("click", () => $("dlg-paymode").close());
+
+function markOrderPaid(id, mode) {
+  const o = state.orders.find((x) => x.id === id);
+  if (!o || orderSale(o)) return;
+  const sale = {
+    id: uid(), ts: Date.now(), pay: mode, client: o.name || "", total: o.total, orderId: o.id,
+    items: o.lines.map((l) => ({ name: l.name, qty: l.qty, price: l.family === "cookie" ? null : l.price, family: l.family === "cookie" ? "cookie" : null })),
+    cookies: o.cookies ? { qty: o.cookies.qty, total: o.cookies.total } : null,
+  };
+  state.sales.push(sale);
+  o.saleId = sale.id;
+  save();
+  renderOrders();
+  toast(`✔ ${eur(o.total)} encaissé (${mode})`);
+}
+
+async function unpayOrder(o) {
+  if (!(await askConfirm("Annuler le paiement ? La vente liée sera supprimée de l'Historique."))) return;
+  state.sales = state.sales.filter((s) => s.id !== o.saleId);
+  o.saleId = null;
+  save();
+  renderOrders();
+  toast("Paiement annulé");
+}
+
+/* ----- WhatsApp : ouvre WhatsApp avec le message prérempli (le contact se choisit dans WhatsApp) ----- */
+function orderMessage(o) {
+  const sale = orderSale(o);
+  const day = DATE_LONG.format(orderStart(o));
+  return [
+    `Bonjour${o.name ? " " + o.name : ""},`,
+    `voici le récapitulatif de votre commande Le Temps d'un Cookie 🍪`,
+    ``,
+    `📅 ${day.charAt(0).toUpperCase() + day.slice(1)} à ${timeFr(o.time)}`,
+    ...orderLinesText(o),
+    ``,
+    `Total : ${eur(o.total)} ${sale ? "(réglé, merci !)" : "(à régler au retrait)"}`,
+    ``,
+    `À très bientôt !`,
+  ].join("\n");
+}
+function openLink(url) {
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function sendWhatsApp(o) { openLink("https://wa.me/?text=" + encodeURIComponent(orderMessage(o))); }
+
+/* ----- Agenda : fichier .ics (événement d'1 h) à ouvrir avec l'application Agenda ----- */
+const icsEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+function icsFold(line) {                       // lignes de 75 octets maximum (RFC 5545), accents compris
+  const enc = new TextEncoder();
+  let out = "", cur = "", bytes = 0;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > 75) { out += cur + "\r\n"; cur = " "; bytes = 1; }
+    cur += ch; bytes += b;
+  }
+  return out + cur;
+}
+const p2 = (n) => String(n).padStart(2, "0");
+const icsLocal = (d) => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`;
+
+function buildIcs(o) {
+  const start = orderStart(o);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);                  // durée : 1 h
+  const n = o.cookies ? o.cookies.qty : 0;
+  const title = `Commande ${o.name || "sans nom"}${n ? ` – ${n} cookie${n > 1 ? "s" : ""}` : ""} – ${eur(o.total)}`;
+  const desc = [
+    ...orderLinesText(o),
+    `Total : ${eur(o.total)} (${orderSale(o) ? "payé" : "à payer"})`,
+    o.remarks ? `Remarques : ${o.remarks}` : "",
+  ].filter(Boolean).join("\n");
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Le Temps d'un Cookie//Caisse//FR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${o.id}@temps-d-un-cookie`,                                       // même UID + SEQUENCE croissant = mise à jour, pas de doublon
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`,
+    `SEQUENCE:${o.seq || 0}`,
+    `DTSTART:${icsLocal(start)}`, `DTEND:${icsLocal(end)}`,
+    `SUMMARY:${icsEscape(title)}`, `DESCRIPTION:${icsEscape(desc)}`,
+    "END:VEVENT", "END:VCALENDAR",
+  ].map(icsFold);
+  return lines.join("\r\n") + "\r\n";
+}
+function exportIcs(o) {
+  const slug = (o.name || "client").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "client";
+  const blob = new Blob([buildIcs(o)], { type: "text/calendar;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `commande-${slug}-${o.date}.ics`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("Ouvrez le fichier pour l'ajouter à l'Agenda");
+}
+
+/* ----- Éditeur de commande ----- */
+let orderDraft = null;     // { id, date, time, cookies:{nom:qté}, others:[{name,price,qty}], locked }
+
+function orderTotals() {
+  const n = Object.values(orderDraft.cookies).reduce((s, q) => s + q, 0);
+  const cookiesTotal = cookiePrice(n);
+  return { n, cookiesTotal, total: cookiesTotal + orderDraft.others.reduce((s, l) => s + l.price * l.qty, 0) };
+}
+
+function openOrder(o) {
+  if (o) {
+    const cookies = {}, others = [];
+    o.lines.forEach((l) => {
+      if (l.family === "cookie") cookies[l.name] = (cookies[l.name] || 0) + l.qty;
+      else others.push({ name: l.name, price: l.price, qty: l.qty });
+    });
+    orderDraft = { id: o.id, cookies, others, locked: !!orderSale(o) };
+    $("ord-date").value = o.date; $("ord-time").value = o.time;
+    $("ord-name").value = o.name; $("ord-remarks").value = o.remarks;
+  } else {
+    orderDraft = { id: null, cookies: {}, others: [], locked: false };
+    $("ord-date").value = dayKey(Date.now()); $("ord-time").value = "10:00";
+    $("ord-name").value = ""; $("ord-remarks").value = "";
+  }
+  $("order-title").textContent = o ? "Modifier la commande" : "Nouvelle commande";
+  $("btn-order-delete").hidden = !o;
+  renderOrderEditor();
+  $("dlg-order").showModal();
+}
+$("btn-new-order").addEventListener("click", () => openOrder(null));
+$("order-cancel").addEventListener("click", () => $("dlg-order").close());
+
+function renderOrderEditor() {
+  const box = $("ord-items");
+  box.innerHTML = "";
+  const locked = orderDraft.locked;
+  const t = orderTotals();
+
+  if (locked) {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "Commande payée : pour modifier son contenu, annulez d'abord le paiement.";
+    box.appendChild(note);
+  }
+
+  const head = document.createElement("div");
+  head.className = "sec";
+  head.innerHTML = `<span>🍪 Cookies</span><span class="live">${t.n ? `${t.n} cookie${t.n > 1 ? "s" : ""} · ${eur(t.cookiesTotal)}` : ""}</span>`;
+  box.appendChild(head);
+
+  const variants = state.products.filter(isCookie).map((p) => ({ name: p.name, active: p.active, note: p.active ? "" : SOLD_OUT }));
+  Object.keys(orderDraft.cookies).forEach((n) => { if (!variants.some((v) => v.name === n)) variants.push({ name: n, active: true, note: "retiré du catalogue" }); });
+  variants.forEach((v) => {
+    const qty = orderDraft.cookies[v.name] || 0;
+    const row = document.createElement("div");
+    row.className = "prow" + (v.active || qty ? "" : " off");
+    row.setAttribute("role", "button");
+    row.innerHTML = `<span class="pn">${esc(v.name)}</span><span class="pp">${esc(v.note)}</span>` +
+      (qty && !locked ? `<button type="button" class="minus" aria-label="Retirer un">−</button>` : "") +
+      `<span class="badge${qty ? "" : " zero"}">${qty || ""}</span>`;
+    if (!locked) {
+      row.addEventListener("click", () => {
+        if (!v.active && !qty) return;
+        orderDraft.cookies[v.name] = qty + 1;
+        renderOrderEditor();
+      });
+      const minus = row.querySelector(".minus");
+      if (minus) minus.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (qty <= 1) delete orderDraft.cookies[v.name]; else orderDraft.cookies[v.name] = qty - 1;
+        renderOrderEditor();
+      });
+    }
+    box.appendChild(row);
+  });
+
+  if (orderDraft.others.length || !locked) {
+    const h2 = document.createElement("div");
+    h2.className = "sec";
+    h2.innerHTML = "<span>Autres lignes</span>";
+    box.appendChild(h2);
+  }
+  orderDraft.others.forEach((l) => {
+    const row = document.createElement("div");
+    row.className = "ordline";
+    row.innerHTML = `<span class="pn">${esc(l.name)}<br><small>${eur(l.price)}</small></span>` +
+      (locked ? `<b>× ${l.qty}</b>` : `<span class="qty"><button type="button" data-d="-1" aria-label="Moins">−</button><span>${l.qty}</span><button type="button" data-d="1" aria-label="Plus">+</button></span>`) +
+      `<b>${eur(l.price * l.qty)}</b>`;
+    row.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => {
+      l.qty += Number(b.dataset.d);
+      if (l.qty <= 0) orderDraft.others = orderDraft.others.filter((x) => x !== l);
+      renderOrderEditor();
+    }));
+    box.appendChild(row);
+  });
+  if (!locked) {
+    const add = document.createElement("div");
+    add.className = "prow other";
+    add.setAttribute("role", "button");
+    add.innerHTML = `<span class="pn">＋ Autre</span><span class="pp">remise, produit hors catalogue</span>`;
+    add.addEventListener("click", () => openOther("order"));
+    box.appendChild(add);
+  }
+  $("ord-total").textContent = eur(t.total);
+}
+
+$("form-order").addEventListener("submit", (e) => {
+  const date = $("ord-date").value, time = $("ord-time").value;
+  const t = orderTotals();
+  const lines = [
+    ...Object.entries(orderDraft.cookies).filter(([, q]) => q > 0).map(([name, qty]) => ({ name, qty, price: null, family: "cookie" })),
+    ...orderDraft.others.map((l) => ({ name: l.name, qty: l.qty, price: l.price, family: null })),
+  ];
+  if (!date || !time) { e.preventDefault(); toast("Date et heure obligatoires"); return; }
+  if (!lines.length) { e.preventDefault(); toast("Ajoutez au moins un produit"); return; }
+  if (t.total < 0) { e.preventDefault(); toast("Le total ne peut pas être négatif"); return; }
+
+  const data = { date, time, name: $("ord-name").value.trim(), remarks: $("ord-remarks").value.trim() };
+  const cookies = t.n ? { qty: t.n, total: t.cookiesTotal } : null;
+  if (orderDraft.id) {
+    const o = state.orders.find((x) => x.id === orderDraft.id);
+    if (!o) return;
+    Object.assign(o, data);
+    if (!orderDraft.locked) { o.lines = lines; o.cookies = cookies; o.total = t.total; }   // prix recalculé à l'enregistrement, puis figé
+    o.seq = (o.seq || 0) + 1;
+    const sale = orderSale(o);
+    if (sale) sale.client = o.name;
+  } else {
+    state.orders.push({ id: uid(), ts: Date.now(), seq: 0, ...data, lines, cookies, total: t.total, saleId: null });
+  }
+  save();
+  renderOrders();
+  toast("✔ Commande enregistrée");
+});
+
+$("btn-order-delete").addEventListener("click", async () => {
+  const o = state.orders.find((x) => x.id === (orderDraft && orderDraft.id));
+  if (!o) return;
+  const msg = orderSale(o) ? "Supprimer cette commande ? La vente déjà enregistrée est conservée dans l'Historique." : "Supprimer cette commande ?";
+  if (!(await askConfirm(msg))) return;
+  state.orders = state.orders.filter((x) => x !== o);
+  save();
+  $("dlg-order").close();
+  renderOrders();
+});
+
 /* ---------- Sauvegarde : fichier JSON + menu Partager d'Android ---------- */
 $("btn-backup").addEventListener("click", async () => {
   const now = new Date();
@@ -620,7 +1003,7 @@ $("btn-backup").addEventListener("click", async () => {
   const payload = { app: "le-temps-d-un-cookie", format: 1, exportedAt: now.toISOString(), data: state };
   const json = JSON.stringify(payload);                       // compact : fichier ~2x plus léger
   const file = new File([json], filename, { type: "application/json" });
-  const summary = `${state.sales.length} vente(s), ${state.expenses.length} dépense(s)`;
+  const summary = `${state.sales.length} vente(s), ${state.expenses.length} dépense(s), ${state.orders.length} commande(s)`;
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
@@ -668,9 +1051,13 @@ function renderBackupBar() {
     return;
   }
   const t = lastBackup();
-  const hasData = state.sales.length > 0 || state.expenses.length > 0;
+  const hasData = state.sales.length > 0 || state.expenses.length > 0 || state.orders.length > 0;
   const age = Date.now() - t;
   bar.textContent = t ? `Dernière sauvegarde ${agoText(age)}` : "Aucune sauvegarde pour l'instant";
+  const ver = document.createElement("span");                 // numéro de version (voir version.js)
+  ver.className = "ver";
+  ver.textContent = ` · v${APP_VERSION}`;
+  bar.appendChild(ver);
   bar.className = "backbar" + (hasData && (!t || age >= 24 * 3600e3) ? " warn" : "");
 }
 setInterval(renderBackupBar, 60000);
@@ -694,11 +1081,29 @@ function sanitizeData(d) {
       (s.cookies == null || (isNum(s.cookies.qty) && isNum(s.cookies.total)));
     if (!ok) { dropped++; return; }
     sales.push({
-      id: s.id, ts: s.ts, total: s.total, pay: s.pay, client: isStr(s.client) ? s.client : "",
+      id: s.id, ts: s.ts, total: s.total, pay: s.pay, client: isStr(s.client) ? s.client : "", orderId: isStr(s.orderId) ? s.orderId : null,
       items: s.items.map((i) => i.family === "cookie"
         ? { name: i.name, qty: i.qty, price: null, family: "cookie" }
         : { name: i.name, qty: i.qty, price: i.price, family: null }),
       cookies: s.cookies ? { qty: s.cookies.qty, total: s.cookies.total } : null,
+    });
+  });
+
+  const orders = [];
+  (Array.isArray(d.orders) ? d.orders : []).forEach((o) => {
+    const ok = o && isStr(o.id) && o.id && isStr(o.date) && /^\d{4}-\d{2}-\d{2}$/.test(o.date) && isStr(o.time) && /^\d{2}:\d{2}$/.test(o.time) &&
+      isNum(o.total) && Array.isArray(o.lines) && o.lines.length > 0 &&
+      o.lines.every((l) => l && isStr(l.name) && isNum(l.qty) && l.qty > 0 && (l.family === "cookie" || isNum(l.price))) &&
+      (o.cookies == null || (isNum(o.cookies.qty) && isNum(o.cookies.total)));
+    if (!ok) { dropped++; return; }
+    orders.push({
+      id: o.id, ts: isNum(o.ts) ? o.ts : 0, seq: isNum(o.seq) ? o.seq : 0, date: o.date, time: o.time,
+      name: isStr(o.name) ? o.name : "", remarks: isStr(o.remarks) ? o.remarks : "", total: o.total,
+      lines: o.lines.map((l) => l.family === "cookie"
+        ? { name: l.name, qty: l.qty, price: null, family: "cookie" }
+        : { name: l.name, qty: l.qty, price: l.price, family: null }),
+      cookies: o.cookies ? { qty: o.cookies.qty, total: o.cookies.total } : null,
+      saleId: isStr(o.saleId) && o.saleId ? o.saleId : null,
     });
   });
 
@@ -721,7 +1126,7 @@ function sanitizeData(d) {
   const pricingOk = cp && Array.isArray(cp.totals) && cp.totals.length > 0 && cp.totals.every((v) => isNum(v) && v >= 0) && isNum(cp.extra) && cp.extra >= 0;
   const cookiePricing = pricingOk ? { totals: [...cp.totals], extra: cp.extra } : freshState().cookiePricing;
 
-  return { version: d.version, products, sales, expenses, cookiePricing, dropped };
+  return { version: d.version, catalogRev: isNum(d.catalogRev) ? d.catalogRev : 0, products, sales, expenses, orders, cookiePricing, dropped };
 }
 
 $("btn-restore").addEventListener("click", () => { $("file-restore").value = ""; $("file-restore").click(); });
@@ -737,9 +1142,9 @@ $("file-restore").addEventListener("change", async () => {
   pendingRestore = { exportedAt: p.exportedAt, data: d };
   const when = p.exportedAt ? new Date(p.exportedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "date inconnue";
   $("restore-info").textContent =
-    `Fichier du ${when} : ${d.sales.length} vente(s), ${d.expenses.length} dépense(s)` +
+    `Fichier du ${when} : ${d.sales.length} vente(s), ${d.expenses.length} dépense(s), ${d.orders.length} commande(s)` +
     (d.dropped ? ` (${d.dropped} entrée(s) invalide(s) ignorée(s))` : "") + `. ` +
-    `Cet appareil : ${state.sales.length} vente(s), ${state.expenses.length} dépense(s).`;
+    `Cet appareil : ${state.sales.length} vente(s), ${state.expenses.length} dépense(s), ${state.orders.length} commande(s).`;
   document.querySelector('input[name=rmode][value=merge]').checked = true;
   $("restore-cat").checked = false;
   $("rcat-wrap").hidden = false;
@@ -756,6 +1161,7 @@ $("form-restore").addEventListener("submit", () => {
   pendingRestore = null;
   if (inc.version !== DATA_VERSION) inc = migrate(inc);       // ancien format (v1) → format actuel
   delete inc.dropped;
+  ensureCatalog(inc);                                         // ancienne sauvegarde : Thé et Café ajoutés une fois
   try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(state)); } catch (e) { /* ignoré */ }   // filet de sécurité
 
   let msg;
@@ -767,10 +1173,13 @@ $("form-restore").addEventListener("submit", () => {
     const eid = new Set(state.expenses.map((x) => x.id));
     const newSales = inc.sales.filter((s) => !sid.has(s.id));
     const newExp = inc.expenses.filter((x) => !eid.has(x.id));
+    const oid = new Set(state.orders.map((o) => o.id));
+    const newOrders = inc.orders.filter((o) => !oid.has(o.id));
     state.sales.push(...newSales);
     state.expenses.push(...newExp);
-    if ($("restore-cat").checked) { state.products = inc.products; state.cookiePricing = inc.cookiePricing; }
-    msg = `✔ Fusion : +${newSales.length} vente(s), +${newExp.length} dépense(s)`;
+    state.orders.push(...newOrders);
+    if ($("restore-cat").checked) { state.products = inc.products; state.cookiePricing = inc.cookiePricing; state.catalogRev = inc.catalogRev; }
+    msg = `✔ Fusion : +${newSales.length} vente(s), +${newExp.length} dépense(s), +${newOrders.length} commande(s)`;
   }
   save();
   undoUntil = Date.now() + 60000;

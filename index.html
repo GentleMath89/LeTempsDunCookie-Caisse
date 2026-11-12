@@ -15,16 +15,19 @@
 <body>
 <header>
   <div class="brand"><img src="logo.png" alt="Le temps d'un cookie"></div>
-  <div class="tools">
+  <div class="tools left">
+    <button id="btn-restore" class="tool" aria-label="Charger une sauvegarde" title="Charger">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>
+    </button>
+  </div>
+  <div class="tools right">
     <button id="btn-backup" class="tool" aria-label="Sauvegarder" title="Sauvegarder">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0L8 7m4-4 4 4M4 17v3h16v-3"/></svg>
-    </button>
-    <button id="btn-restore" class="tool" aria-label="Restaurer" title="Restaurer">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>
     </button>
   </div>
   <nav>
     <button data-tab="vente" class="active">Vente</button>
+    <button data-tab="commandes">Commandes</button>
     <button data-tab="catalogue">Catalogue</button>
     <button data-tab="histo">Historique</button>
     <button data-tab="depenses">Dépenses</button>
@@ -37,6 +40,17 @@
   <section id="tab-vente">
     <div id="grid"></div>
     <ul id="cart" class="cart"></ul>
+  </section>
+
+  <!-- COMMANDES -->
+  <section id="tab-commandes" hidden>
+    <button id="btn-new-order" class="primary wide">＋ Nouvelle commande</button>
+    <div id="ofilter" class="chips">
+      <button type="button" data-f="upcoming">À venir</button>
+      <button type="button" data-f="past">Passées</button>
+      <button type="button" data-f="all">Toutes</button>
+    </div>
+    <ul id="orders" class="orders"></ul>
   </section>
 
   <!-- HISTORIQUE -->
@@ -65,7 +79,7 @@
 
   <!-- CATALOGUE -->
   <section id="tab-catalogue" hidden>
-    <p class="hint">☰ : glisser pour changer l'ordre · « Actif / Off » : griser un produit dans l'écran Vente. Les ventes passées gardent leur prix d'origine.</p>
+    <p class="hint">☰ : glisser pour changer l'ordre · « Actif / Épuisé » : un produit épuisé est grisé avec la mention « Épuisé » dans l'écran Vente. Les ventes passées gardent leur prix d'origine.</p>
 
     <div class="sec"><span>🍪 Variantes de cookies</span></div>
     <ul id="plist-cookies" class="plist"></ul>
@@ -146,6 +160,32 @@
   </form>
 </dialog>
 
+<dialog id="dlg-order">
+  <form method="dialog" id="form-order">
+    <h2 id="order-title">Commande</h2>
+    <div class="row2">
+      <label>Date <input type="date" id="ord-date"></label>
+      <label>Heure <input type="time" id="ord-time"></label>
+    </div>
+    <label>Nom <input id="ord-name" autocomplete="off"></label>
+    <label>Remarques <textarea id="ord-remarks" rows="2" placeholder="ex. allergie, message sur le paquet…"></textarea></label>
+    <div id="ord-items"></div>
+    <div class="ordtotal"><span>Total</span><b id="ord-total">0,00 €</b></div>
+    <div class="row">
+      <button type="button" id="btn-order-delete" class="danger">Supprimer</button>
+      <button type="button" id="order-cancel" class="secondary">Annuler</button>
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-paymode">
+  <h2>Paiement reçu</h2>
+  <p id="paymode-info" class="hint"></p>
+  <div id="paymode-btns" class="paymodes"></div>
+  <div class="row"><button type="button" id="paymode-cancel" class="secondary">Annuler</button></div>
+</dialog>
+
 <dialog id="dlg-confirm">
   <h2 id="confirm-msg">Confirmer ?</h2>
   <div class="row">
@@ -154,7 +194,8 @@
   </div>
 </dialog>
 
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" popover="manual"></div>
+<script src="version.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

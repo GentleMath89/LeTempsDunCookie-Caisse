@@ -3,14 +3,16 @@
 /* Service worker : permet l'utilisation hors ligne (marché sans réseau).
  *
  * IMPORTANT — à CHAQUE modification de l'appli (index.html, style.css, app.js, logo, icônes…),
- * augmenter VERSION ci-dessous. C'est ce changement qui déclenche la mise à jour sur les téléphones.
+ * changer le numéro dans version.js (et non ici). C'est ce changement qui déclenche la mise à jour sur les téléphones.
+ * Tout nouveau fichier de l'appli doit aussi être ajouté à la liste ASSETS ci-dessous.
  */
-const VERSION = "3";
-const CACHE = "caisse-v" + VERSION;
+importScripts("version.js");                 // définit APP_VERSION (source unique du numéro de version)
+const CACHE = "caisse-v" + APP_VERSION;
 const ASSETS = [
   "./",
   "index.html",
   "style.css",
+  "version.js",
   "app.js",
   "logo.png",
   "manifest.json",

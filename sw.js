@@ -5,7 +5,7 @@
  * IMPORTANT — à CHAQUE modification de l'appli (index.html, style.css, app.js, logo, icônes…),
  * augmenter VERSION ci-dessous. C'est ce changement qui déclenche la mise à jour sur les téléphones.
  */
-const VERSION = "1";
+const VERSION = "3";
 const CACHE = "caisse-v" + VERSION;
 const ASSETS = [
   "./",

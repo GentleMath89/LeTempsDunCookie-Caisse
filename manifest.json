@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Le temps d'un cookie – Caisse",
-  "short_name": "Caisse Cookie",
+  "name": "Le Temps d'un Cookie",
+  "short_name": "Le Temps d'un Cookie",
   "description": "Caisse de marché : ventes, dépenses, historique et sauvegarde.",
   "lang": "fr",
   "start_url": "./",

@@ -1,0 +1,15 @@
+# Configuration locale de l'outil de développement (contient des chemins du PC)
+.claude/
+
+# Données de l'appli : ne JAMAIS publier (ventes, dépenses, noms de clients)
+sauvegarde-caisse-*.json
+ventes-*.csv
+depenses-*.csv
+*.csv
+
+# Fichiers système / temporaires
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log
+*.tmp

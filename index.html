@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fecfb5">
+<link rel="stylesheet" href="style.css">
+<title>Le temps d'un cookie</title>
+</head>
+<body>
+<header>
+  <div class="brand"><img src="logo.png" alt="Le temps d'un cookie"></div>
+  <div class="tools">
+    <button id="btn-backup" class="tool" aria-label="Sauvegarder" title="Sauvegarder">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0L8 7m4-4 4 4M4 17v3h16v-3"/></svg>
+    </button>
+    <button id="btn-restore" class="tool" aria-label="Restaurer" title="Restaurer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>
+    </button>
+  </div>
+  <nav>
+    <button data-tab="vente" class="active">Vente</button>
+    <button data-tab="catalogue">Catalogue</button>
+    <button data-tab="histo">Historique</button>
+    <button data-tab="depenses">Dépenses</button>
+  </nav>
+  <div id="backup-bar" class="backbar" aria-live="polite"></div>
+</header>
+
+<main>
+  <!-- VENTE -->
+  <section id="tab-vente">
+    <div id="grid"></div>
+    <ul id="cart" class="cart"></ul>
+  </section>
+
+  <!-- HISTORIQUE -->
+  <section id="tab-histo" hidden>
+    <div class="row">
+      <label class="grow">Jour <input type="date" id="histo-date"></label>
+      <button id="btn-all" class="secondary">Tout voir</button>
+    </div>
+    <div id="summary" class="summary"></div>
+    <ul id="sales" class="sales"></ul>
+    <button id="btn-csv" class="secondary wide">⬇ Exporter tout en CSV</button>
+  </section>
+
+  <!-- DÉPENSES -->
+  <section id="tab-depenses" hidden>
+    <form id="form-exp">
+      <label>Date <input type="date" id="exp-date" required></label>
+      <label>Libellé <input id="exp-label" placeholder="ex. Farine, sachets, emplacement…" autocomplete="off"></label>
+      <label>Montant (€) <input id="exp-amount" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      <button type="submit" class="primary wide">Ajouter la dépense</button>
+    </form>
+    <div id="exp-summary" class="summary"></div>
+    <ul id="exp-list" class="sales"></ul>
+    <button id="btn-exp-csv" class="secondary wide">⬇ Exporter les dépenses en CSV</button>
+  </section>
+
+  <!-- CATALOGUE -->
+  <section id="tab-catalogue" hidden>
+    <p class="hint">☰ : glisser pour changer l'ordre · « Actif / Off » : griser un produit dans l'écran Vente. Les ventes passées gardent leur prix d'origine.</p>
+
+    <div class="sec"><span>🍪 Variantes de cookies</span></div>
+    <ul id="plist-cookies" class="plist"></ul>
+    <button id="btn-add-cookie" class="secondary wide">＋ Ajouter une variante</button>
+
+    <div class="sec"><span>Autres produits</span></div>
+    <p class="hint">Un produit sans prix ne peut pas être vendu.</p>
+    <ul id="plist-other" class="plist"></ul>
+    <button id="btn-add" class="secondary wide">＋ Ajouter un produit</button>
+
+    <div class="sec"><span>Grille de prix des cookies</span></div>
+    <p class="hint">Prix <b>total</b> du panier pour 1 à 8 cookies (toutes variantes mélangées), puis le prix de chaque cookie en plus.</p>
+    <div id="pricing" class="pricing"></div>
+  </section>
+</main>
+
+<footer id="checkout">
+  <div class="pay" id="pay"></div>
+  <div class="total-row">
+    <button id="btn-clear" class="secondary">Vider</button>
+    <button id="btn-pay" class="primary" disabled>Encaisser <span id="total">0,00 €</span></button>
+  </div>
+</footer>
+
+<dialog id="dlg-other">
+  <form method="dialog" id="form-other">
+    <h2>Autre</h2>
+    <label>Libellé <input id="other-label" placeholder="ex. 7 cookies" autocomplete="off"></label>
+    <label>Montant (€) <input id="other-price" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+    <label class="chk"><input type="checkbox" id="other-neg"> Réduction (montant en moins)</label>
+    <div class="row">
+      <button type="button" id="other-cancel" class="secondary">Annuler</button>
+      <button type="submit" class="primary">Ajouter</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-sale">
+  <form method="dialog" id="form-sale">
+    <h2>Vente</h2>
+    <p id="sale-info" class="hint"></p>
+    <label>Nom du client (facultatif) <input id="sale-client" autocomplete="off"></label>
+    <div class="row">
+      <button type="button" id="sale-delete" class="danger">Supprimer</button>
+      <button type="button" id="sale-cancel" class="secondary">Fermer</button>
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-exp">
+  <form method="dialog" id="form-exp-edit">
+    <h2>Dépense</h2>
+    <label>Date <input type="date" id="expe-date" required></label>
+    <label>Libellé <input id="expe-label" autocomplete="off"></label>
+    <label>Montant (€) <input id="expe-amount" inputmode="decimal" autocomplete="off"></label>
+    <div class="row">
+      <button type="button" id="expe-delete" class="danger">Supprimer</button>
+      <button type="button" id="expe-cancel" class="secondary">Fermer</button>
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<input type="file" id="file-restore" hidden>
+<dialog id="dlg-restore">
+  <form method="dialog" id="form-restore">
+    <h2>Restaurer une sauvegarde</h2>
+    <p id="restore-info" class="hint"></p>
+    <label class="chk"><input type="radio" name="rmode" value="merge" checked> <span><b>Fusionner</b> : ajoute les ventes et dépenses manquantes</span></label>
+    <label class="chk"><input type="radio" name="rmode" value="replace"> <span><b>Remplacer tout</b> : repart exactement du fichier</span></label>
+    <label class="chk" id="rcat-wrap"><input type="checkbox" id="restore-cat"> <span>Reprendre aussi le catalogue et la grille de prix du fichier</span></label>
+    <p class="hint">Vos données actuelles sont gardées de côté : vous pourrez annuler juste après.</p>
+    <div class="row">
+      <button type="button" id="restore-cancel" class="secondary">Annuler</button>
+      <button type="submit" class="primary">Restaurer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirm">
+  <h2 id="confirm-msg">Confirmer ?</h2>
+  <div class="row">
+    <button type="button" id="confirm-no" class="secondary">Annuler</button>
+    <button type="button" id="confirm-yes" class="danger">Confirmer</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

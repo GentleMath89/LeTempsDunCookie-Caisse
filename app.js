@@ -14,7 +14,7 @@ const COOKIE_VARIANTS = [
   "Le Rico", "Le Marshall", "Le Noisette", "L'Edition Limitée",
 ];
 const DEFAULT_OTHERS = [
-  { id: "p4", name: "Sachet de chocolats", price: null },
+  { id: "p4", name: "Sachet de chocolats", price: 800 },
   { id: "p5", name: "Pack cadeau M", price: 1000 },
   { id: "p6", name: "Pack cadeau L", price: 2000 },
 ];
@@ -201,7 +201,7 @@ function renderGrid() {
   const other = document.createElement("div");
   other.setAttribute("role", "button");
   other.className = "prow other";
-  other.innerHTML = `<span class="pn">＋ Autre</span><span class="pp">saisie libre · réduction possible</span>`;
+  other.innerHTML = `<span class="pn">＋ Autre</span><span class="pp">Saisie libre</span>`;
   other.addEventListener("click", openOther);
   g.appendChild(other);
 }
@@ -820,6 +820,16 @@ window.addEventListener("storage", (e) => {
   showTab(currentTab());
   toast("Données mises à jour depuis une autre fenêtre");
 });
+
+/* ---------- Mode hors ligne (service worker) ----------
+ * Sur localhost on ne l'active que sur demande (?sw=1) : sinon le cache masquerait les modifications pendant le développement. */
+if ("serviceWorker" in navigator && (location.hostname !== "localhost" || location.search.includes("sw=1"))) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne non disponible : l'appli reste utilisable en ligne */ });
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController) toast("Mise à jour installée : fermez et rouvrez l'appli");
+  });
+}
 
 /* ---------- Démarrage ---------- */
 loadCart();

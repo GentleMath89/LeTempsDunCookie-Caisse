@@ -4,6 +4,8 @@ const STORAGE_KEY = "caisse-marche-v1";
 const DATA_VERSION = 2;
 const PAY_MODES = ["Espèces", "CB", "PayPal", "Wero"];
 const DEFAULT_PAY = "Espèces";
+const EXPENSE_CATS = ["Autres", "Emballages", "Matières premières", "Marketing", "Frais et Taxes"];   // typologies de dépenses
+const catOf = (x) => (EXPENSE_CATS.includes(x.category) ? x.category : EXPENSE_CATS[0]);              // dépense sans typologie : « Autres »
 const SOLD_OUT = "Épuisé";          // mention affichée pour un produit inactif (libellé par défaut)
 
 const $ = (id) => document.getElementById(id);
@@ -106,7 +108,7 @@ function migrate(s) {
 let state = load();
 let cart = [];            // { key, name, price, qty, family }
 let pay = DEFAULT_PAY;
-let histoAll = false;
+let histoView = "month";          // today | month | all | day (jour choisi dans le sélecteur de date)
 let cookiesOpen = true;
 try { cookiesOpen = localStorage.getItem("caisse-cookies-open") !== "0"; } catch (e) { /* ignoré */ }
 let editingSaleId = null;
@@ -395,15 +397,28 @@ $("form-other").addEventListener("submit", (e) => {
 
 /* ---------- Historique ---------- */
 $("histo-date").value = dayKey(Date.now());
-$("histo-date").addEventListener("change", () => { histoAll = false; renderHisto(); });
-$("btn-all").addEventListener("click", () => { histoAll = !histoAll; renderHisto(); });
+$("histo-view").value = histoView;
+$("histo-view").addEventListener("change", () => setHistoView($("histo-view").value));
+$("histo-date").addEventListener("change", () => setHistoView("day"));       // une date choisie à la main = « Jour choisi »
+function setHistoView(v) {
+  histoView = v;
+  $("histo-view").value = v;
+  renderHisto();
+}
+/* La vente (date en ms) fait-elle partie de la période affichée ? */
+function histoIncludes(ts) {
+  const d = dayKey(ts);
+  if (histoView === "all") return true;
+  if (histoView === "month") return d.slice(0, 7) === dayKey(Date.now()).slice(0, 7);
+  return d === $("histo-date").value;
+}
 
 function renderHisto() {
-  $("btn-all").textContent = histoAll ? "Un seul jour" : "Tout voir";
-  $("histo-date").disabled = histoAll;
-  const day = $("histo-date").value;
+  if (histoView === "today") $("histo-date").value = dayKey(Date.now());      // suit le changement de jour si l'appli reste ouverte
+  const wide = histoView === "all" || histoView === "month";                   // plusieurs jours : la date s'affiche sur chaque vente
+  $("histo-date").disabled = wide;
   const list = state.sales
-    .filter((s) => histoAll || dayKey(s.ts) === day)
+    .filter((s) => histoIncludes(s.ts))
     .sort((a, b) => b.ts - a.ts);
 
   const total = list.reduce((s, x) => s + x.total, 0);
@@ -423,7 +438,7 @@ function renderHisto() {
   const plural = (n) => (n > 1 ? "s" : "");
 
   $("summary").innerHTML = list.length
-    ? `<div class="big">${eur(total)}</div><div class="meta">${list.length} vente${plural(list.length)}${histoAll ? " (toutes dates)" : ""}</div>` +
+    ? `<div class="big">${eur(total)}</div><div class="meta">${list.length} vente${plural(list.length)}${histoView === "all" ? " (toutes dates)" : histoView === "month" ? " ce mois-ci" : ""}</div>` +
       (cookieN
         ? `<h3>Cookies</h3><table><tr><td><b>Total</b></td><td><b>${cookieN} cookie${plural(cookieN)} · ${eur(cookieCA)}</b></td></tr>` +
           rows(variantRows, (q) => `${q}`) + `</table>`
@@ -443,7 +458,7 @@ function renderHisto() {
     if (cookieItems.length) parts.push(`🍪 ${s.cookies ? s.cookies.qty : ""} cookie${s.cookies && s.cookies.qty > 1 ? "s" : ""} : ` + cookieItems.map((i) => `${i.qty} × ${esc(i.name)}`).join(", "));
     s.items.filter((i) => i.family !== "cookie").forEach((i) => parts.push(`${i.qty} × ${esc(i.name)}`));
     li.innerHTML = `<div class="main">
-        <div class="meta">${histoAll ? DATE_FR.format(s.ts) + " " : ""}${timeStr(s.ts)} · ${esc(s.pay)}</div>
+        <div class="meta">${wide ? DATE_FR.format(s.ts) + " " : ""}${timeStr(s.ts)} · ${esc(s.pay)}</div>
         <div>${parts.join("<br>")}</div>
         ${s.client ? `<div class="client">👤 ${esc(s.client)}</div>` : ""}
       </div><div class="side"><div class="tot">${eur(s.total)}</div><button class="edit-btn">✏️ Éditer</button></div>`;
@@ -475,7 +490,7 @@ $("form-sale").addEventListener("submit", (e) => {
   s.client = $("sale-client").value.trim();
   if (v !== saleDateInit) {                        // inchangée : on garde l'heure exacte d'origine (secondes comprises)
     s.ts = t;
-    if (!histoAll) $("histo-date").value = dayKey(t);   // on suit la vente dans l'Historique
+    if (!histoIncludes(t)) { $("histo-date").value = dayKey(t); histoView = "day"; $("histo-view").value = "day"; }   // on suit la vente dans l'Historique
   }
   save(); renderHisto();
 });
@@ -517,6 +532,7 @@ function downloadCsv(filename, lines) {
 
 /* ---------- Dépenses ---------- */
 $("exp-date").value = dayKey(Date.now());
+[$("exp-cat"), $("expe-cat")].forEach((sel) => EXPENSE_CATS.forEach((c) => sel.add(new Option(c, c))));
 
 $("form-exp").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -526,10 +542,11 @@ $("form-exp").addEventListener("submit", (e) => {
   if (amount == null || amount === 0) { toast("Montant invalide"); return; }
   state.expenses.push({
     id: uid(),
-    date, label: $("exp-label").value.trim() || "Dépense", amount, ts: Date.now(),
+    date, label: $("exp-label").value.trim() || "Dépense", category: $("exp-cat").value, amount, ts: Date.now(),
   });
   save();
   $("exp-label").value = "";
+  $("exp-cat").value = EXPENSE_CATS[0];
   $("exp-amount").value = "";
   toast(`✔ Dépense de ${eur(amount)} ajoutée`);
   renderExpenses();
@@ -547,7 +564,7 @@ function renderExpenses() {
   list.forEach((x) => {
     const li = document.createElement("li");
     li.innerHTML = `<div class="main">
-        <div class="meta">${DATE_FR.format(new Date(x.date + "T12:00:00"))}</div>
+        <div class="meta">${DATE_FR.format(new Date(x.date + "T12:00:00"))} · ${esc(catOf(x))}</div>
         <div>${esc(x.label)}</div>
       </div><div class="side"><div class="tot">${eur(x.amount)}</div><button class="edit-btn">✏️ Éditer</button></div>`;
     li.addEventListener("click", () => openExpense(x.id));
@@ -562,6 +579,7 @@ function openExpense(id) {
   editingExpId = id;
   $("expe-date").value = x.date;
   $("expe-label").value = x.label;
+  $("expe-cat").value = catOf(x);
   $("expe-amount").value = csvNum(x.amount);
   $("dlg-exp").showModal();
 }
@@ -572,6 +590,7 @@ $("form-exp-edit").addEventListener("submit", (e) => {
   if (!x || amount == null || amount === 0 || !$("expe-date").value) { e.preventDefault(); toast("Date ou montant invalide"); return; }
   x.date = $("expe-date").value;
   x.label = $("expe-label").value.trim() || "Dépense";
+  x.category = $("expe-cat").value;
   x.amount = amount;
   save(); renderExpenses();
 });
@@ -586,9 +605,9 @@ $("expe-delete").addEventListener("click", async () => {
 $("btn-exp-csv").addEventListener("click", () => {
   if (!state.expenses.length) { toast("Aucune dépense à exporter"); return; }
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-  const lines = [["Date", "Libellé", "Montant", "N° dépense"].map(q).join(";")];
+  const lines = [["Date", "Libellé", "Montant", "Typologie", "N° dépense"].map(q).join(";")];
   [...state.expenses].sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts)
-    .forEach((x) => lines.push([x.date, x.label, csvNum(x.amount), x.id].map(q).join(";")));
+    .forEach((x) => lines.push([x.date, x.label, csvNum(x.amount), catOf(x), x.id].map(q).join(";")));
   downloadCsv(`depenses-${dayKey(Date.now())}.csv`, lines);
 });
 
@@ -1262,7 +1281,7 @@ function sanitizeData(d) {
   (Array.isArray(d.expenses) ? d.expenses : []).forEach((x) => {
     const ok = x && isStr(x.id) && x.id && isStr(x.date) && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && isStr(x.label) && isNum(x.amount);
     if (!ok) { dropped++; return; }
-    expenses.push({ id: x.id, date: x.date, label: x.label, amount: x.amount, ts: isNum(x.ts) ? x.ts : 0 });
+    expenses.push({ id: x.id, date: x.date, label: x.label, category: catOf(x), amount: x.amount, ts: isNum(x.ts) ? x.ts : 0 });
   });
 
   let products = [];
@@ -1381,6 +1400,51 @@ window.addEventListener("storage", (e) => {                  // repli sans Index
   showTab(currentTab());
   toast("Données mises à jour depuis une autre fenêtre");
 });
+
+/* ---------- Tirer vers le bas pour actualiser ----------
+ * En haut de page, un glissement du doigt vers le bas (≥ 90 px) relance la synchronisation, relit les données et réaffiche
+ * l'onglet en cours (donc retrie les listes). Le « tirer pour rafraîchir » d'Android reste coupé (il rechargerait toute la page). */
+(function pullToRefresh() {
+  const THRESHOLD = 90;
+  const pill = document.createElement("div");
+  pill.className = "ptr";
+  document.body.appendChild(pill);
+  let startY = null, dy = 0, busy = false;
+
+  const show = (text, y) => { pill.textContent = text; pill.style.opacity = "1"; pill.style.transform = `translate(-50%, ${y}px)`; };
+  const hide = () => { pill.classList.add("anim"); pill.style.opacity = "0"; pill.style.transform = "translate(-50%, -60px)"; };
+
+  document.addEventListener("touchstart", (e) => {
+    startY = null;
+    if (busy || e.touches.length !== 1 || window.scrollY > 0) return;
+    if (document.querySelector("dialog[open]") || (e.target.closest && e.target.closest(".handle"))) return;    // fenêtre ouverte ou réordonnancement du catalogue
+    startY = e.touches[0].clientY; dy = 0;
+    pill.classList.remove("anim");
+  }, { passive: true });
+
+  document.addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    dy = e.touches[0].clientY - startY;
+    if (dy <= 0 || window.scrollY > 0) { dy = 0; hide(); return; }
+    show(dy >= THRESHOLD ? "↑ Relâchez pour actualiser" : "↓ Tirez pour actualiser", Math.min(dy * 0.5, 60) - 8);
+  }, { passive: true });
+
+  document.addEventListener("touchend", async () => {
+    if (startY === null) return;
+    const pulled = dy;
+    startY = null; dy = 0;
+    if (pulled < THRESHOLD) { hide(); return; }
+    busy = true;
+    pill.classList.add("anim");
+    show("Actualisation…", 8);
+    try {
+      if (Sync.info().state !== "login") await Sync.now();     // récupère ce qui vient de l'autre appareil, envoie ce qui attend
+      await refreshState();                                    // relit la base locale, puis réaffiche l'onglet
+      await new Promise((r) => setTimeout(r, 400));           // le temps de voir l'indicateur
+    } finally { busy = false; hide(); }
+  });
+  document.addEventListener("touchcancel", () => { startY = null; hide(); });
+})();
 
 /* ---------- Mode hors ligne (service worker) ----------
  * Sur localhost on ne l'active que sur demande (?sw=1) : sinon le cache masquerait les modifications pendant le développement. */

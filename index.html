@@ -57,7 +57,14 @@
   <section id="tab-histo" hidden>
     <div class="row">
       <label class="grow">Jour <input type="date" id="histo-date"></label>
-      <button id="btn-all" class="secondary">Tout voir</button>
+      <label class="grow">Affichage
+        <select id="histo-view">
+          <option value="today">Aujourd'hui</option>
+          <option value="month" selected>Ce mois-ci</option>
+          <option value="all">Tout voir</option>
+          <option value="day" hidden>Jour choisi</option>
+        </select>
+      </label>
     </div>
     <div id="summary" class="summary"></div>
     <ul id="sales" class="sales"></ul>
@@ -68,6 +75,7 @@
   <section id="tab-depenses" hidden>
     <form id="form-exp">
       <label>Date <input type="date" id="exp-date" required></label>
+      <label>Typologie <select id="exp-cat"></select></label>
       <label>Libellé <input id="exp-label" placeholder="ex. Farine, sachets, emplacement…" autocomplete="off"></label>
       <label>Montant (€) <input id="exp-amount" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
       <button type="submit" class="primary wide">Ajouter la dépense</button>
@@ -135,6 +143,7 @@
   <form method="dialog" id="form-exp-edit">
     <h2>Dépense</h2>
     <label>Date <input type="date" id="expe-date" required></label>
+    <label>Typologie <select id="expe-cat"></select></label>
     <label>Libellé <input id="expe-label" autocomplete="off"></label>
     <label>Montant (€) <input id="expe-amount" inputmode="decimal" autocomplete="off"></label>
     <div class="row">

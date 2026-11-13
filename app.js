@@ -25,7 +25,7 @@ const DEFAULT_OTHERS = [
 const DEFAULT_PRICING = { totals: [300, 600, 900, 1100, 1400, 1700, 2000, 2000], extra: 250 };
 
 const isCookie = (p) => p.family === "cookie";
-const CATALOG_REV = 2;     // 1 = Thé et Café ajoutés · 2 = Spéculoos et coffrets renommés
+const CATALOG_REV = 3;     // 1 = Thé et Café ajoutés · 2 = Spéculoos et coffrets renommés · 3 = ventes de commandes datées de la commande
 const RENAMES = [          // anciens noms par défaut → nouveaux (uniquement si le produit porte encore son ancien nom)
   { id: "v5", from: "Le Speculoos", to: "Le Spéculoos" },
   { id: "p5", from: "Pack cadeau M", to: "Coffret petit format" },
@@ -66,6 +66,18 @@ function ensureCatalog(st) {
       const fix = (arr) => (arr || []).forEach((i) => { if (i.name === r.from) i.name = r.to; });
       (st.sales || []).forEach((s) => fix(s.items));
       (st.orders || []).forEach((o) => fix(o.lines));
+    });
+  }
+  if (rev < 3) {
+    // La date de la commande est la date maîtresse : les ventes déjà créées depuis une commande (payée avant la 1.0.1)
+    // quittent l'heure du paiement pour prendre la date et l'heure de la commande. Une seule fois ; modifiable ensuite.
+    (st.orders || []).forEach((o) => {
+      const s = (st.sales || []).find((x) => x.id === o.saleId || x.orderId === o.id);
+      if (!s || !o.date || !o.time) return;
+      const [y, m, d] = o.date.split("-").map(Number);
+      const [hh, mm] = o.time.split(":").map(Number);
+      const t = new Date(y, m - 1, d, hh, mm).getTime();
+      if (Number.isFinite(t)) s.ts = t;
     });
   }
   st.catalogRev = CATALOG_REV;
@@ -1014,7 +1026,7 @@ $("form-order").addEventListener("submit", (e) => {
     if (!orderDraft.locked) { o.lines = lines; o.cookies = cookies; o.total = t.total; }   // prix recalculé à l'enregistrement, puis figé
     o.seq = (o.seq || 0) + 1;
     const sale = orderSale(o);
-    if (sale) sale.client = o.name;
+    if (sale) { sale.client = o.name; sale.ts = orderStart(o).getTime(); }   // la vente suit la date de la commande
   } else {
     state.orders.push({ id: uid(), ts: Date.now(), seq: 0, ...data, lines, cookies, total: t.total, saleId: null });
   }

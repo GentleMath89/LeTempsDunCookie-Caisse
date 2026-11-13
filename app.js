@@ -215,8 +215,10 @@ function productRow(p) {
 function renderGrid() {
   const g = $("grid");
   g.innerHTML = "";
-  const cookies = state.products.filter(isCookie);
-  const others = state.products.filter((p) => !isCookie(p));
+  // Les produits inactifs (épuisés) descendent en bas de leur rubrique, l'ordre du catalogue étant conservé dans chaque groupe
+  const activeFirst = (list) => [...list.filter((p) => p.active), ...list.filter((p) => !p.active)];
+  const cookies = activeFirst(state.products.filter(isCookie));
+  const others = activeFirst(state.products.filter((p) => !isCookie(p)));
 
   if (cookies.length) {
     const n = cookieQty();
@@ -724,7 +726,7 @@ function renderOrders() {
       (o.remarks ? `<div class="oremark">📝 ${esc(o.remarks)}</div>` : "") +
       `<div class="otot">${eur(o.total)}</div>` +
       `<div class="oact">` +
-      (sale ? `<button type="button" data-a="unpay">Annuler le paiement</button>` : `<button type="button" class="paybtn" data-a="pay">Payé</button>`) +
+      (sale ? `<button type="button" data-a="unpay">Annuler le paiement</button>` : `<button type="button" class="paybtn" data-a="pay">Marquer comme payé</button>`) +
       `<button type="button" data-a="wa">WhatsApp</button><button type="button" data-a="ics">Agenda</button><button type="button" data-a="edit">Éditer</button></div>`;
     const act = (a, fn) => li.querySelector(`[data-a=${a}]`).addEventListener("click", fn);
     if (sale) act("unpay", () => unpayOrder(o)); else act("pay", () => askPayMode(o));
@@ -834,6 +836,9 @@ function buildIcs(o) {
     `SEQUENCE:${o.seq || 0}`,
     `DTSTART:${icsLocal(start)}`, `DTEND:${icsLocal(end)}`,
     `SUMMARY:${icsEscape(title)}`, `DESCRIPTION:${icsEscape(desc)}`,
+    "COLOR:yellowgreen",                                                   // « vert pomme » (RFC 7986 : nom de couleur CSS) ; ignoré par certaines applis, dont Google Agenda
+    "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEscape("Dans 7 jours : " + title)}`, "TRIGGER:-P7D", "END:VALARM",   // rappel 7 jours avant (J-7)
+    "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEscape("Demain : " + title)}`, "TRIGGER:-P1D", "END:VALARM",      // rappel 24 h avant (J-1)
     "END:VEVENT", "END:VCALENDAR",
   ].map(icsFold);
   return lines.join("\r\n") + "\r\n";
@@ -867,11 +872,11 @@ function openOrder(o) {
     });
     orderDraft = { id: o.id, cookies, others, locked: !!orderSale(o) };
     $("ord-date").value = o.date; $("ord-time").value = o.time;
-    $("ord-name").value = o.name; $("ord-remarks").value = o.remarks;
+    $("ord-name").value = o.name; $("ord-phone").value = o.phone || ""; $("ord-remarks").value = o.remarks;
   } else {
     orderDraft = { id: null, cookies: {}, others: [], locked: false };
     $("ord-date").value = dayKey(Date.now()); $("ord-time").value = "10:00";
-    $("ord-name").value = ""; $("ord-remarks").value = "";
+    $("ord-name").value = ""; $("ord-phone").value = ""; $("ord-remarks").value = "";
   }
   $("order-title").textContent = o ? "Modifier la commande" : "Nouvelle commande";
   $("btn-order-delete").hidden = !o;
@@ -966,7 +971,7 @@ $("form-order").addEventListener("submit", (e) => {
   if (!lines.length) { e.preventDefault(); toast("Ajoutez au moins un produit"); return; }
   if (t.total < 0) { e.preventDefault(); toast("Le total ne peut pas être négatif"); return; }
 
-  const data = { date, time, name: $("ord-name").value.trim(), remarks: $("ord-remarks").value.trim() };
+  const data = { date, time, name: $("ord-name").value.trim(), phone: $("ord-phone").value.trim(), remarks: $("ord-remarks").value.trim() };
   const cookies = t.n ? { qty: t.n, total: t.cookiesTotal } : null;
   if (orderDraft.id) {
     const o = state.orders.find((x) => x.id === orderDraft.id);
@@ -994,6 +999,21 @@ $("btn-order-delete").addEventListener("click", async () => {
   $("dlg-order").close();
   renderOrders();
 });
+
+/* ----- Choix d'un contact du téléphone (API Contact Picker : Chrome sur Android, appel déclenché par un appui) ----- */
+async function pickContact() {
+  try {
+    const res = await navigator.contacts.select(["name", "tel"], { multiple: false });
+    if (!res || !res.length) return;
+    const c = res[0];
+    if (c.tel && c.tel.length) $("ord-phone").value = String(c.tel[0]).trim();                      // premier numéro du contact
+    if (!$("ord-name").value.trim() && c.name && c.name.length) $("ord-name").value = String(c.name[0]).trim();   // nom : seulement s'il est vide
+  } catch (e) {
+    if (e && e.name !== "AbortError") toast("Contacts indisponibles");
+  }
+}
+if ("contacts" in navigator && "ContactsManager" in window) $("btn-contact").hidden = false;     // masqué sur PC et navigateurs sans cette fonction
+$("btn-contact").addEventListener("click", pickContact);
 
 /* ---------- Sauvegarde : fichier JSON + menu Partager d'Android ---------- */
 $("btn-backup").addEventListener("click", async () => {
@@ -1098,7 +1118,7 @@ function sanitizeData(d) {
     if (!ok) { dropped++; return; }
     orders.push({
       id: o.id, ts: isNum(o.ts) ? o.ts : 0, seq: isNum(o.seq) ? o.seq : 0, date: o.date, time: o.time,
-      name: isStr(o.name) ? o.name : "", remarks: isStr(o.remarks) ? o.remarks : "", total: o.total,
+      name: isStr(o.name) ? o.name : "", phone: isStr(o.phone) ? o.phone : "", remarks: isStr(o.remarks) ? o.remarks : "", total: o.total,
       lines: o.lines.map((l) => l.family === "cookie"
         ? { name: l.name, qty: l.qty, price: null, family: "cookie" }
         : { name: l.name, qty: l.qty, price: l.price, family: null }),
@@ -1239,6 +1259,25 @@ if ("serviceWorker" in navigator && (location.hostname !== "localhost" || locati
     if (hadController) toast("Mise à jour installée : fermez et rouvrez l'appli");
   });
 }
+
+/* ---------- Pas de saisie automatique ----------
+ * Chrome propose, au-dessus du clavier, des adresses, cartes bancaires ou numéros enregistrés : cette barre prend de la place.
+ * « autocomplete » avec une valeur non reconnue (et non « off », ignoré par Chrome pour les champs nom/adresse/téléphone)
+ * désactive ces suggestions. Appliqué à tous les champs, y compris ceux créés plus tard (catalogue, éditeurs…). */
+function noAutofill(el) {
+  el.setAttribute("autocomplete", "nope");
+  el.setAttribute("autocorrect", "off");
+  el.setAttribute("spellcheck", "false");
+  el.setAttribute("data-lpignore", "true");          // gestionnaires de mots de passe tiers
+  el.setAttribute("data-1p-ignore", "");
+}
+const noAutofillIn = (root) => root.querySelectorAll("input, textarea").forEach(noAutofill);
+noAutofillIn(document);
+new MutationObserver((muts) => muts.forEach((m) => m.addedNodes.forEach((n) => {
+  if (n.nodeType !== 1) return;
+  if (n.matches("input, textarea")) noAutofill(n);
+  noAutofillIn(n);
+}))).observe(document.body, { childList: true, subtree: true });
 
 /* ---------- Démarrage ---------- */
 loadCart();

@@ -162,19 +162,33 @@
 
 <dialog id="dlg-order">
   <form method="dialog" id="form-order">
-    <h2 id="order-title">Commande</h2>
-    <div class="row2">
-      <label>Date <input type="date" id="ord-date"></label>
-      <label>Heure <input type="time" id="ord-time"></label>
+    <div class="ord-body">
+      <h2 id="order-title">Commande</h2>
+      <div class="row2">
+        <label>Date <input type="date" id="ord-date"></label>
+        <label>Heure <input type="time" id="ord-time"></label>
+      </div>
+      <div class="row2">
+        <label>Nom <input id="ord-name"></label>
+        <label>Téléphone
+          <span class="telwrap">
+            <input type="tel" id="ord-phone" inputmode="tel">
+            <button type="button" id="btn-contact" class="contactbtn" aria-label="Choisir dans les contacts" title="Choisir dans les contacts" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.2"/><path d="M5.5 19c.8-3 3.3-4.6 6.5-4.6s5.7 1.600 6.500 4.600M4 4h16v16H4z"/></svg>
+            </button>
+          </span>
+        </label>
+      </div>
+      <label>Remarques <textarea id="ord-remarks" rows="2" placeholder="ex. allergie, message sur le paquet…"></textarea></label>
+      <div id="ord-items"></div>
     </div>
-    <label>Nom <input id="ord-name" autocomplete="off"></label>
-    <label>Remarques <textarea id="ord-remarks" rows="2" placeholder="ex. allergie, message sur le paquet…"></textarea></label>
-    <div id="ord-items"></div>
-    <div class="ordtotal"><span>Total</span><b id="ord-total">0,00 €</b></div>
-    <div class="row">
-      <button type="button" id="btn-order-delete" class="danger">Supprimer</button>
-      <button type="button" id="order-cancel" class="secondary">Annuler</button>
-      <button type="submit" class="primary">Enregistrer</button>
+    <div class="ord-foot">
+      <div class="ordtotal"><span>Total</span><b id="ord-total">0,00 €</b></div>
+      <div class="row">
+        <button type="button" id="btn-order-delete" class="danger">Supprimer</button>
+        <button type="button" id="order-cancel" class="secondary">Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
     </div>
   </form>
 </dialog>

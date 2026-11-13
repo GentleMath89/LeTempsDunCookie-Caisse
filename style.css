@@ -189,11 +189,22 @@ dialog h2 { margin: 0 0 10px; font-size: 18px; }
 .otot { margin-top: 6px; font-size: 18px; font-weight: 700; }
 .oact { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
 .oact button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 11px 6px; font-size: 15px; color: var(--text); }
-.oact button.paybtn { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+/* « Marquer comme payé » : vert amande, comme le mode de paiement présélectionné de l'écran Vente (et non le vert plein, qui ferait croire que c'est déjà payé) */
+.oact button.paybtn { background: #e5f3ea; border: 2px solid var(--green); color: var(--text); font-weight: 700; }
 .row2 { display: flex; gap: 8px; }
 .row2 label { flex: 1; }
 textarea { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; width: 100%; background: #fff; margin-top: 4px; resize: vertical; color: var(--text); }
-#dlg-order { max-height: 92vh; overflow-y: auto; }
+/* Éditeur de commande : contenu défilant + pied de page fixe (Total / Annuler / Enregistrer toujours visibles, comme l'écran Vente) */
+#dlg-order { padding: 0; overflow: hidden; max-height: 92vh; max-height: 92dvh; }
+#dlg-order[open] { display: flex; flex-direction: column; }
+#form-order { display: flex; flex-direction: column; min-height: 0; max-height: 92vh; max-height: 92dvh; }
+.ord-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; overscroll-behavior: contain; }
+.ord-foot { flex: none; padding: 8px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; box-shadow: 0 -4px 10px rgba(0,0,0,.06); }
+.ord-foot .ordtotal { margin: 0 0 8px; padding-top: 0; border-top: 0; }
+.telwrap { display: flex; gap: 4px; margin-top: 4px; }
+.telwrap input { margin-top: 0; min-width: 0; }
+.contactbtn { flex: none; width: 42px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 0; display: flex; align-items: center; justify-content: center; color: var(--brown); }
+.contactbtn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #dlg-order .sec { margin: 10px 2px 6px; }
 .ordline { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-bottom: 5px; }
 .ordline .pn { flex: 1; font-weight: 600; }

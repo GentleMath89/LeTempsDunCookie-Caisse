@@ -6,4 +6,4 @@
  *
  * Règle : nouvelle fonctionnalité -> MINEUR (0.4.0 -> 0.5.0) ; correction ou petit ajustement -> CORRECTIF (0.4.0 -> 0.4.1).
  */
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";

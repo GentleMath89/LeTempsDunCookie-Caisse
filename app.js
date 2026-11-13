@@ -446,12 +446,26 @@ function openSale(id) {
   editingSaleId = id;
   $("sale-info").textContent = `${DATE_FR.format(s.ts)} ${timeStr(s.ts)} · ${s.pay} · ${eur(s.total)}`;
   $("sale-client").value = s.client || "";
+  saleDateInit = toLocalInput(s.ts);
+  $("sale-date").value = saleDateInit;
   $("dlg-sale").showModal();
 }
+/* Date de la vente : modifiable pour rattraper une vente saisie après coup. Format « AAAA-MM-JJTHH:MM ». */
+let saleDateInit = "";
+const toLocalInput = (ts) => { const d = new Date(ts); return `${dayKey(ts)}T${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 $("sale-cancel").addEventListener("click", () => $("dlg-sale").close());
-$("form-sale").addEventListener("submit", () => {
+$("form-sale").addEventListener("submit", (e) => {
   const s = state.sales.find((x) => x.id === editingSaleId);
-  if (s) { s.client = $("sale-client").value.trim(); save(); renderHisto(); }
+  if (!s) return;
+  const v = $("sale-date").value;
+  const t = new Date(v).getTime();
+  if (!v || !Number.isFinite(t)) { e.preventDefault(); toast("Date invalide"); return; }
+  s.client = $("sale-client").value.trim();
+  if (v !== saleDateInit) {                        // inchangée : on garde l'heure exacte d'origine (secondes comprises)
+    s.ts = t;
+    if (!histoAll) $("histo-date").value = dayKey(t);   // on suit la vente dans l'Historique
+  }
+  save(); renderHisto();
 });
 $("sale-delete").addEventListener("click", async () => {
   if (!(await askConfirm("Supprimer définitivement cette vente ?"))) return;
@@ -779,7 +793,8 @@ function markOrderPaid(id, mode) {
   if (!o || orderSale(o)) return;
   const sale = {
     id: "pay-" + o.id,            // identifiant dérivé de la commande : payée depuis deux appareils, elle ne donne qu'une seule vente
-    ts: Date.now(), pay: mode, client: o.name || "", total: o.total, orderId: o.id,
+    ts: orderStart(o).getTime(),    // la vente prend la date et l'heure de la commande (modifiable dans l'Historique)
+    pay: mode, client: o.name || "", total: o.total, orderId: o.id,
     items: o.lines.map((l) => ({ name: l.name, qty: l.qty, price: l.family === "cookie" ? null : l.price, family: l.family === "cookie" ? "cookie" : null })),
     cookies: o.cookies ? { qty: o.cookies.qty, total: o.cookies.total } : null,
   };

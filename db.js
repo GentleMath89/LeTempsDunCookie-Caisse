@@ -63,11 +63,20 @@ const DB = (() => {
     return out;
   }
 
-  const clean = (rec) => { const { _u, _d, pos, ...data } = rec; return data; };
+  const clean = (rec) => { const { _u, _d, _s, pos, ...data } = rec; return data; };
+  let writes = 0;                   // nombre d'enregistrements demandés : permet de détecter une modification pendant une lecture
 
   /* Lit toute la base et reconstruit un `state`. Renvoie null si la base est vide (première ouverture). */
   async function load() {
     if (!db || !inited) return null;
+    for (;;) {
+      const before = writes;
+      await chain;                                   // les écritures en cours doivent être terminées
+      const st = await read();
+      if (before === writes) { snap = flatten(st); return st; }   // rien n'a bougé pendant la lecture
+    }
+  }
+  async function read() {
     const tx = db.transaction(STORES, "readonly");
     const all = {};
     await Promise.all(STORES.map(async (s) => { all[s] = (await wrap(tx.objectStore(s).getAll())).filter((r) => !r._d); }));
@@ -80,20 +89,21 @@ const DB = (() => {
       cookiePricing: setting("cookiePricing"),
       catalogRev: setting("catalogRev") || 0,
     };
-    snap = flatten(st);
     return st;
   }
 
-  /* Compare `st` avec la base et enregistre les différences. Appel immédiat ; l'écriture se termine juste après. */
+  /* Compare `st` avec la base et enregistre les différences. Appel immédiat ; l'écriture se termine juste après.
+   * _s : 0 = pas encore envoyé au serveur (voir sync.js), 1 = envoyé. */
   function commit(st) {
     if (!db) return Promise.resolve();
+    writes++;
     const cur = flatten(st);
     const now = Date.now();
     const ops = [];
     STORES.forEach((s) => {
       const old = snap[s] || new Map();
-      cur[s].forEach((v, id) => { if (!old.has(id) || old.get(id).json !== v.json) ops.push([s, { ...v.rec, _u: now, _d: null }]); });
-      old.forEach((v, id) => { if (!cur[s].has(id)) ops.push([s, { id, _u: now, _d: now }]); });
+      cur[s].forEach((v, id) => { if (!old.has(id) || old.get(id).json !== v.json) ops.push([s, { ...v.rec, _u: now, _d: null, _s: 0 }]); });
+      old.forEach((v, id) => { if (!cur[s].has(id)) ops.push([s, { id, _u: now, _d: now, _s: 0 }]); });
     });
     snap = cur;
     if (!inited) { ops.push(["meta", { id: "init", _u: now }]); inited = true; }
@@ -103,16 +113,66 @@ const DB = (() => {
       ops.forEach(([s, rec]) => tx.objectStore(s).put(rec));
       await done(tx);
       if (channel) channel.postMessage("changed");
+      if (api.onLocalChange && ops.some((o) => o[0] !== "meta")) api.onLocalChange();
     }).catch((e) => { if (api.onError) api.onError(e); });
     return chain;
   }
 
+  /* ----- Pour la synchronisation (sync.js) ----- */
+  const flush = () => chain;
+
+  /* Enregistrements pas encore envoyés (modifiés ou supprimés ici). */
+  async function dirty(limit) {
+    await chain;
+    const out = [];
+    for (const s of STORES) {
+      const all = await wrap(db.transaction(s, "readonly").objectStore(s).getAll());
+      all.forEach((r) => { if (r._s !== 1) out.push({ store: s, rec: r }); });
+    }
+    return out.slice(0, limit);
+  }
+
+  /* Marque comme envoyés ceux qui n'ont pas été modifiés depuis l'envoi (même _u). */
+  async function markSynced(sent) {
+    const tx = db.transaction(STORES, "readwrite");
+    await Promise.all(sent.map(async ({ store, rec }) => {
+      const os = tx.objectStore(store);
+      const cur = await wrap(os.get(rec.id));
+      if (cur && cur._u === rec._u && cur._s !== 1) os.put({ ...cur, _s: 1 });
+    }));
+    await done(tx);
+  }
+
+  /* Applique des enregistrements reçus du serveur : { store, id, data, u, d }.
+   * Le plus récent gagne ; `remoteWins` : types pour lesquels le serveur l'emporte toujours (1re synchro d'un appareil).
+   * Renvoie le nombre d'enregistrements modifiés ici. */
+  async function applyRemote(rows, remoteWins) {
+    await chain;
+    let changed = 0;
+    const tx = db.transaction(STORES, "readwrite");
+    await Promise.all(rows.filter((r) => STORES.includes(r.store)).map(async (r) => {
+      const os = tx.objectStore(r.store);
+      const local = await wrap(os.get(r.id));
+      if (local && !(r.u > local._u) && !(remoteWins && remoteWins.includes(r.store))) return;
+      if (local && local._u === r.u && (local._d || null) === (r.d || null) && local._s === 1) return;
+      changed++;
+      os.put(r.d ? { id: r.id, _u: r.u, _d: r.d, _s: 1 } : { ...r.data, id: r.id, _u: r.u, _d: null, _s: 1 });
+    }));
+    await done(tx);
+    if (changed && channel) channel.postMessage("changed");
+    return changed;
+  }
+
+  async function getMeta(id) { const r = await wrap(db.transaction("meta", "readonly").objectStore("meta").get(id)); return r ? r.value : undefined; }
+  async function setMeta(id, value) { const tx = db.transaction("meta", "readwrite"); tx.objectStore("meta").put({ id, value }); await done(tx); }
+
   const api = {
     available: false,
     open: async () => { api.available = await open(); return api.available; },
-    load, commit,
+    load, commit, flush, dirty, markSynced, applyRemote, getMeta, setMeta,
     onError: null,            // appelé si une écriture échoue
     onExternalChange: null,   // appelé quand une autre fenêtre a modifié la base
+    onLocalChange: null,      // appelé quand cette fenêtre a enregistré une modification (déclenche l'envoi)
   };
   return api;
 })();

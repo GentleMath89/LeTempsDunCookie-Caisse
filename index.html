@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- Politique de sécurité : tout vient de ce site uniquement, aucune connexion vers l'extérieur, aucun script ni style intégré -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<!-- Politique de sécurité : tout vient de ce site uniquement, aucune connexion sauf vers la base de synchronisation (Supabase, projet de la caisse), aucun script ni style intégré -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self' https://thkscwqpyqpxbhrinfho.supabase.co; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#fecfb5">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -208,8 +208,31 @@
   </div>
 </dialog>
 
+<dialog id="dlg-sync">
+  <h2>Synchronisation</h2>
+  <form id="form-sync" hidden>
+    <p class="hint">Connectez-vous avec le compte partagé : les ventes, dépenses, commandes et le catalogue seront identiques sur tous vos appareils.</p>
+    <label>E-mail <input type="email" id="sync-email" inputmode="email"></label>
+    <label>Mot de passe <input type="password" id="sync-pass"></label>
+    <p id="sync-err" class="hint err" hidden></p>
+    <div class="row">
+      <button type="button" id="sync-close1" class="secondary">Fermer</button>
+      <button type="submit" id="sync-login" class="primary">Se connecter</button>
+    </div>
+  </form>
+  <div id="sync-ok" hidden>
+    <p id="sync-info" class="hint"></p>
+    <div class="row">
+      <button type="button" id="sync-out" class="danger">Se déconnecter</button>
+      <button type="button" id="sync-now" class="secondary">Synchroniser</button>
+      <button type="button" id="sync-close2" class="primary">Fermer</button>
+    </div>
+  </div>
+</dialog>
+
 <div id="toast" class="toast" popover="manual"></div>
 <script src="version.js"></script>
 <script src="db.js"></script>   <!-- ouvre la base puis charge app.js -->
+<script src="sync.js"></script>
 </body>
 </html>

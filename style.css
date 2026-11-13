@@ -33,6 +33,9 @@ header { position: sticky; }
 .tool svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .backbar { text-align: center; font-size: 11.5px; color: rgba(59,36,24,.7); padding: 1px 8px 4px; }
 .backbar .ver { opacity: .75; font-weight: 400; white-space: nowrap; }
+.backbar .syncbtn { font-size: inherit; white-space: nowrap; }
+.backbar .syncbtn.bad { color: #a8410d; }
+dialog .err { color: #a8410d; font-weight: 600; }
 .backbar.warn { color: #a8410d; font-weight: 600; }
 .backbar .link { background: none; border: 0; padding: 0 2px; font: inherit; color: #a8410d; text-decoration: underline; font-weight: 600; }
 nav { display: flex; }

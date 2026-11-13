@@ -1093,6 +1093,15 @@ function renderBackupBar() {
   const hasData = state.sales.length > 0 || state.expenses.length > 0 || state.orders.length > 0;
   const age = Date.now() - t;
   bar.textContent = t ? `Dernière sauvegarde ${agoText(age)}` : "Aucune sauvegarde pour l'instant";
+  const sy = syncLabel();
+  if (sy) {
+    bar.appendChild(document.createTextNode(" · "));
+    const b = document.createElement("button");
+    b.type = "button"; b.id = "btn-sync"; b.textContent = sy.text;
+    b.className = "link syncbtn" + (sy.bad ? " bad" : "");
+    b.addEventListener("click", openSync);
+    bar.appendChild(b);
+  }
   const ver = document.createElement("span");                 // numéro de version (voir version.js)
   ver.className = "ver";
   ver.textContent = ` · v${APP_VERSION}`;
@@ -1100,6 +1109,82 @@ function renderBackupBar() {
   bar.className = "backbar" + (hasData && (!t || age >= 24 * 3600e3) ? " warn" : "");
 }
 setInterval(renderBackupBar, 60000);
+
+/* ---------- Synchronisation entre appareils (moteur : sync.js) ---------- */
+function syncLabel() {
+  const i = Sync.info();
+  switch (i.state) {
+    case "off": return null;
+    case "login": return { text: "☁ Se connecter", bad: true };
+    case "syncing": return { text: "☁ Synchronisation…" };
+    case "offline": return { text: "☁ Hors ligne : envoi plus tard" };
+    case "error": return { text: "☁ Erreur de synchro", bad: true };
+    default: return { text: "☁ Synchronisé " + agoText(Date.now() - i.lastOk) };
+  }
+}
+Sync.onStatus = () => { renderBackupBar(); if ($("dlg-sync").open) renderSyncDialog(); };
+
+function renderSyncDialog() {
+  const i = Sync.info();
+  const connected = i.state !== "login";
+  $("form-sync").hidden = connected;
+  $("sync-ok").hidden = !connected;
+  if (connected) {
+    const label = { idle: "à jour", syncing: "en cours…", offline: "hors ligne (les saisies partiront au retour du réseau)", error: "erreur : " + i.message }[i.state] || "";
+    $("sync-info").textContent = `Connecté : ${i.email}. Synchronisation ${label}` + (i.lastOk ? ` · dernière réussie ${agoText(Date.now() - i.lastOk)}.` : ".");
+  } else if (i.message) {
+    $("sync-err").textContent = i.message; $("sync-err").hidden = false;
+  }
+}
+function openSync() {
+  $("sync-err").hidden = true;
+  $("sync-email").setAttribute("autocomplete", "username");        // l'appli coupe l'autocomplétion partout ailleurs ; ici elle est utile
+  $("sync-pass").setAttribute("autocomplete", "current-password");
+  renderSyncDialog();
+  if (!$("dlg-sync").open) $("dlg-sync").showModal();
+}
+["sync-close1", "sync-close2"].forEach((id) => $(id).addEventListener("click", () => $("dlg-sync").close()));
+$("sync-now").addEventListener("click", () => Sync.now());
+$("sync-out").addEventListener("click", async () => {
+  if (await askConfirm("Se déconnecter ? Les données restent sur cet appareil mais ne seront plus synchronisées.")) { await Sync.signOut(); $("dlg-sync").close(); toast("Déconnecté"); }
+});
+$("form-sync").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("sync-login");
+  btn.disabled = true;
+  $("sync-err").hidden = true;
+  try {
+    await Sync.signIn($("sync-email").value.trim(), $("sync-pass").value);
+    $("sync-pass").value = "";
+    $("dlg-sync").close();
+    toast("✔ Connecté");
+  } catch (err) {
+    $("sync-err").textContent = err instanceof TypeError ? "Pas de réseau" : (err.message === "Invalid login credentials" ? "E-mail ou mot de passe incorrect" : err.message);
+    $("sync-err").hidden = false;
+  } finally { btn.disabled = false; }
+});
+
+/* Après une synchro (ou une modification venue d'une autre fenêtre) : on relit les données, puis on réaffiche
+ * dès que l'utilisateur n'est pas en train de saisir (fenêtre ouverte ou champ actif). */
+let idleTimer = null;
+function renderWhenIdle() {
+  const ae = document.activeElement;
+  if (document.querySelector("dialog[open]") || (ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName))) {
+    clearTimeout(idleTimer); idleTimer = setTimeout(renderWhenIdle, 1500); return;
+  }
+  showTab(currentTab());
+}
+async function refreshState() {
+  try {
+    const s = await DB.load();
+    if (!s || !s.cookiePricing) return;
+    s.version = DATA_VERSION;
+    if (ensureCatalog(s)) DB.commit(s);
+    state = s;
+    renderWhenIdle();
+  } catch (e) { /* lecture impossible : on garde l'affichage actuel */ }
+}
+Sync.onRemoteChange = refreshState;
 
 /* ---------- Restauration ---------- */
 let pendingRestore = null;
@@ -1262,17 +1347,7 @@ function loadCart() {
 }
 
 /* ---------- Plusieurs fenêtres (onglet Chrome + appli installée) : on relit les données modifiées ailleurs ---------- */
-function reloadFromOtherWindow() {
-  const st = DB.available ? DB.load() : Promise.resolve(null);
-  st.then((s) => {
-    if (!s) return;
-    s.version = DATA_VERSION;
-    state = s;
-    showTab(currentTab());
-    toast("Données mises à jour depuis une autre fenêtre");
-  }).catch(() => { /* lecture impossible : on garde l'affichage actuel */ });
-}
-DB.onExternalChange = reloadFromOtherWindow;
+DB.onExternalChange = () => refreshState();
 window.addEventListener("storage", (e) => {                  // repli sans IndexedDB
   if (DB.available || (e.key !== null && e.key !== STORAGE_KEY)) return;
   state = loadLegacy();
@@ -1314,3 +1389,4 @@ loadCart();
 renderPay();
 renderAll();
 renderBackupBar();
+Sync.start();                // synchronisation avec l'autre appareil (sans effet tant qu'on n'est pas connecté)

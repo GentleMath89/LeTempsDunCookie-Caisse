@@ -14,6 +14,7 @@ const ASSETS = [
   "style.css",
   "version.js",
   "app.js",
+  "db.js",
   "logo.png",
   "manifest.json",
   "icons/icon-192.png",

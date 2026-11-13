@@ -4,13 +4,13 @@ Petite caisse de marché pour téléphone Android (application web installable, 
 ventes par variante de cookies avec grille de prix, autres produits, réductions,
 historique, dépenses, exports CSV, sauvegarde et restauration par fichier JSON.
 
-- **Aucun serveur, aucun compte** : toutes les données restent dans le téléphone.
+- **Aucun serveur, aucun compte** (pour l'instant) : toutes les données restent dans le téléphone, dans une base IndexedDB (un enregistrement par vente, dépense, commande, produit : voir `db.js`).
 - **Aucune connexion vers l'extérieur** (voir la politique de sécurité dans `index.html`).
 - Utilisable **hors ligne** une fois installée.
 
 ## Pour le développement
 
-- Fichiers : `index.html`, `style.css`, `app.js`, `version.js`, `manifest.json`, `sw.js`, `logo.png`, `icons/`.
+- Fichiers : `index.html`, `style.css`, `app.js`, `db.js`, `version.js`, `manifest.json`, `sw.js`, `logo.png`, `icons/`.
 - **À chaque publication, changer le numéro dans `version.js`** (`APP_VERSION`, format
   MAJEUR.MINEUR.CORRECTIF). Il s'affiche dans le bandeau de l'appli et déclenche la mise à jour
   sur les téléphones. Nouvelle fonctionnalité → MINEUR ; correction → CORRECTIF.

@@ -99,7 +99,21 @@ let cookiesOpen = true;
 try { cookiesOpen = localStorage.getItem("caisse-cookies-open") !== "0"; } catch (e) { /* ignoré */ }
 let editingSaleId = null;
 
+/* Les données viennent d'IndexedDB (voir db.js). Première ouverture après la mise à jour : on reprend l'ancien
+ * contenu de localStorage (il y reste comme copie de secours) et on le copie dans IndexedDB.
+ * Si IndexedDB est indisponible, on continue comme avant avec localStorage seul. */
 function load() {
+  const s = window.__initialState;
+  if (DB.available && s && Array.isArray(s.products) && s.cookiePricing) {
+    s.version = DATA_VERSION;
+    if (ensureCatalog(s)) DB.commit(s);
+    return s;
+  }
+  const st = loadLegacy();
+  if (DB.available) DB.commit(st);
+  return st;
+}
+function loadLegacy() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -115,11 +129,13 @@ function load() {
   } catch (e) { /* stockage indisponible : on repart du catalogue par défaut */ }
   return freshState();
 }
-function persist(st) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(st)); } catch (e) { /* ignoré */ } }
+function persist(st) { if (!DB.available) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(st)); } catch (e) { /* ignoré */ } } }
 function save() {
+  if (DB.available) { DB.commit(state); return; }
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (e) { toast("⚠ Enregistrement impossible"); }
 }
+DB.onError = () => toast("⚠ Enregistrement impossible");
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
 /* ---------- Utilitaires ---------- */
@@ -322,7 +338,7 @@ $("btn-pay").addEventListener("click", () => {
   if (cartTotal() < 0) { toast("Le total ne peut pas être négatif"); return; }
   const n = cookieQty();
   const sale = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    id: uid(),
     ts: Date.now(),
     items: cart.map((l) => ({ name: l.name, qty: l.qty, price: l.family ? null : l.price, family: l.family || null })),
     cookies: n ? { qty: n, total: cookiePrice(n) } : null,
@@ -483,7 +499,7 @@ $("form-exp").addEventListener("submit", (e) => {
   if (!date) { toast("Date manquante"); return; }
   if (amount == null || amount === 0) { toast("Montant invalide"); return; }
   state.expenses.push({
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    id: uid(),
     date, label: $("exp-label").value.trim() || "Dépense", amount, ts: Date.now(),
   });
   save();
@@ -672,7 +688,9 @@ $("btn-add").addEventListener("click", () => {
  * Une commande = date + heure + nom + remarques + lignes (variantes de cookies et lignes « Autre »).
  * Le statut Payé / À payer est DÉDUIT de l'existence de la vente liée (saleId) : si la vente est supprimée
  * de l'Historique, la commande repasse toute seule à « À payer ». */
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+function uid() {                          // identifiant unique, même entre deux appareils
+  return Date.now().toString(36) + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => (b % 36).toString(36)).join("");
+}
 const DATE_LONG = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 const DATE_SHORT = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" });
 const timeFr = (t) => t.replace(":", "h");
@@ -760,7 +778,8 @@ function markOrderPaid(id, mode) {
   const o = state.orders.find((x) => x.id === id);
   if (!o || orderSale(o)) return;
   const sale = {
-    id: uid(), ts: Date.now(), pay: mode, client: o.name || "", total: o.total, orderId: o.id,
+    id: "pay-" + o.id,            // identifiant dérivé de la commande : payée depuis deux appareils, elle ne donne qu'une seule vente
+    ts: Date.now(), pay: mode, client: o.name || "", total: o.total, orderId: o.id,
     items: o.lines.map((l) => ({ name: l.name, qty: l.qty, price: l.family === "cookie" ? null : l.price, family: l.family === "cookie" ? "cookie" : null })),
     cookies: o.cookies ? { qty: o.cookies.qty, total: o.cookies.total } : null,
   };
@@ -1243,9 +1262,20 @@ function loadCart() {
 }
 
 /* ---------- Plusieurs fenêtres (onglet Chrome + appli installée) : on relit les données modifiées ailleurs ---------- */
-window.addEventListener("storage", (e) => {
-  if (e.key !== null && e.key !== STORAGE_KEY) return;
-  state = load();
+function reloadFromOtherWindow() {
+  const st = DB.available ? DB.load() : Promise.resolve(null);
+  st.then((s) => {
+    if (!s) return;
+    s.version = DATA_VERSION;
+    state = s;
+    showTab(currentTab());
+    toast("Données mises à jour depuis une autre fenêtre");
+  }).catch(() => { /* lecture impossible : on garde l'affichage actuel */ });
+}
+DB.onExternalChange = reloadFromOtherWindow;
+window.addEventListener("storage", (e) => {                  // repli sans IndexedDB
+  if (DB.available || (e.key !== null && e.key !== STORAGE_KEY)) return;
+  state = loadLegacy();
   showTab(currentTab());
   toast("Données mises à jour depuis une autre fenêtre");
 });

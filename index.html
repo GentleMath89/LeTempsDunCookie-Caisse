@@ -16,7 +16,9 @@
 <header>
   <div class="brand"><img src="logo.png" alt="Le temps d'un cookie"></div>
   <div class="tools left">
-    <button id="btn-restore" class="tool" aria-label="Charger une sauvegarde" title="Charger">
+    <!-- Bouton « Charger » masqué (la synchro le rend inutile) : tout le code de restauration reste dans app.js.
+         Pour le réactiver, retirer l'attribut « hidden » ci-dessous. -->
+    <button id="btn-restore" class="tool" aria-label="Charger une sauvegarde" title="Charger" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>
     </button>
   </div>
@@ -61,6 +63,7 @@
         <select id="histo-view">
           <option value="today">Aujourd'hui</option>
           <option value="month" selected>Ce mois-ci</option>
+          <option value="lastmonth">Le mois dernier</option>
           <option value="all">Tout voir</option>
           <option value="day" hidden>Jour choisi</option>
         </select>

@@ -405,17 +405,23 @@ function setHistoView(v) {
   $("histo-view").value = v;
   renderHisto();
 }
+/* « AAAA-MM » du mois courant (décalage 0) ou d'un mois voisin (-1 = mois dernier) */
+function monthKey(offset) {
+  const n = new Date();
+  return dayKey(new Date(n.getFullYear(), n.getMonth() + offset, 1).getTime()).slice(0, 7);
+}
 /* La vente (date en ms) fait-elle partie de la période affichée ? */
 function histoIncludes(ts) {
   const d = dayKey(ts);
   if (histoView === "all") return true;
-  if (histoView === "month") return d.slice(0, 7) === dayKey(Date.now()).slice(0, 7);
+  if (histoView === "month") return d.slice(0, 7) === monthKey(0);
+  if (histoView === "lastmonth") return d.slice(0, 7) === monthKey(-1);
   return d === $("histo-date").value;
 }
 
 function renderHisto() {
   if (histoView === "today") $("histo-date").value = dayKey(Date.now());      // suit le changement de jour si l'appli reste ouverte
-  const wide = histoView === "all" || histoView === "month";                   // plusieurs jours : la date s'affiche sur chaque vente
+  const wide = histoView === "all" || histoView === "month" || histoView === "lastmonth";   // plusieurs jours : la date s'affiche sur chaque vente
   $("histo-date").disabled = wide;
   const list = state.sales
     .filter((s) => histoIncludes(s.ts))
@@ -438,7 +444,7 @@ function renderHisto() {
   const plural = (n) => (n > 1 ? "s" : "");
 
   $("summary").innerHTML = list.length
-    ? `<div class="big">${eur(total)}</div><div class="meta">${list.length} vente${plural(list.length)}${histoView === "all" ? " (toutes dates)" : histoView === "month" ? " ce mois-ci" : ""}</div>` +
+    ? `<div class="big">${eur(total)}</div><div class="meta">${list.length} vente${plural(list.length)}${histoView === "all" ? " (toutes dates)" : histoView === "month" ? " ce mois-ci" : histoView === "lastmonth" ? " le mois dernier" : ""}</div>` +
       (cookieN
         ? `<h3>Cookies</h3><table><tr><td><b>Total</b></td><td><b>${cookieN} cookie${plural(cookieN)} · ${eur(cookieCA)}</b></td></tr>` +
           rows(variantRows, (q) => `${q}`) + `</table>`
@@ -759,9 +765,15 @@ function orderLinesText(o) {
   return out;
 }
 
+const ORDER_FILTERS = { upcoming: "À venir", past: "Passées", all: "Toutes" };
 function renderOrders() {
-  document.querySelectorAll("#ofilter button").forEach((b) => b.classList.toggle("active", b.dataset.f === ordersFilter));
   const today = dayKey(Date.now());
+  // Compteurs sur les filtres : nombre de commandes (≠ nombre de ventes de l'Historique)
+  const counts = { upcoming: state.orders.filter((o) => o.date >= today).length, past: state.orders.filter((o) => o.date < today).length, all: state.orders.length };
+  document.querySelectorAll("#ofilter button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.f === ordersFilter);
+    b.textContent = `${ORDER_FILTERS[b.dataset.f]} (${counts[b.dataset.f]})`;
+  });
   // À venir : la plus proche d'abord · Passées : la plus récente d'abord · Toutes : la plus tardive d'abord
   const list = state.orders
     .filter((o) => ordersFilter === "all" || (ordersFilter === "past" ? o.date < today : o.date >= today))
@@ -1114,7 +1126,16 @@ $("btn-backup").addEventListener("click", async () => {
 const LAST_BACKUP_KEY = "caisse-last-backup";
 const SNAPSHOT_KEY = "caisse-avant-restauration";
 let undoUntil = 0;
+const FIRST_SEEN_KEY = "caisse-premiere-utilisation";
+const BACKUP_WARN_DAYS = 15;
 const lastBackup = () => { try { return Number(localStorage.getItem(LAST_BACKUP_KEY)) || 0; } catch (e) { return 0; } };
+function firstSeen() {                                      // date de première utilisation sur cet appareil (créée à la demande)
+  try {
+    let t = Number(localStorage.getItem(FIRST_SEEN_KEY));
+    if (!t) { t = Date.now(); localStorage.setItem(FIRST_SEEN_KEY, String(t)); }
+    return t;
+  } catch (e) { return Date.now(); }
+}
 function markBackup() {
   try { localStorage.setItem(LAST_BACKUP_KEY, String(Date.now())); } catch (e) { /* ignoré */ }
   renderBackupBar();
@@ -1135,13 +1156,16 @@ function renderBackupBar() {
     $("btn-undo").addEventListener("click", undoRestore);
     return;
   }
+  // Le rappel de sauvegarde n'apparaît qu'au-delà de BACKUP_WARN_DAYS (les données sont déjà sur l'autre appareil et le serveur).
+  // Sans sauvegarde faite sur cet appareil, on compte à partir de sa première utilisation.
   const t = lastBackup();
   const hasData = state.sales.length > 0 || state.expenses.length > 0 || state.orders.length > 0;
-  const age = Date.now() - t;
-  bar.textContent = t ? `Dernière sauvegarde ${agoText(age)}` : "Aucune sauvegarde pour l'instant";
+  const age = Date.now() - (t || firstSeen());
+  const stale = hasData && age >= BACKUP_WARN_DAYS * 24 * 3600e3;
+  bar.textContent = stale ? (t ? `Dernière sauvegarde ${agoText(age)}` : "Aucune sauvegarde depuis l'installation") : "";
   const sy = syncLabel();
   if (sy) {
-    bar.appendChild(document.createTextNode(" · "));
+    if (stale) bar.appendChild(document.createTextNode(" · "));
     const b = document.createElement("button");
     b.type = "button"; b.id = "btn-sync"; b.textContent = sy.text;
     b.className = "link syncbtn" + (sy.bad ? " bad" : "");
@@ -1150,9 +1174,9 @@ function renderBackupBar() {
   }
   const ver = document.createElement("span");                 // numéro de version (voir version.js)
   ver.className = "ver";
-  ver.textContent = ` · v${APP_VERSION}`;
+  ver.textContent = (stale || sy ? " · " : "") + `v${APP_VERSION}`;
   bar.appendChild(ver);
-  bar.className = "backbar" + (hasData && (!t || age >= 24 * 3600e3) ? " warn" : "");
+  bar.className = "backbar" + (stale ? " warn" : "");
 }
 setInterval(renderBackupBar, 60000);
 
@@ -1450,10 +1474,35 @@ window.addEventListener("storage", (e) => {                  // repli sans Index
  * Sur localhost on ne l'active que sur demande (?sw=1) : sinon le cache masquerait les modifications pendant le développement. */
 if ("serviceWorker" in navigator && (location.hostname !== "localhost" || location.search.includes("sw=1"))) {
   const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne non disponible : l'appli reste utilisable en ligne */ });
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (hadController) toast("Mise à jour installée : fermez et rouvrez l'appli");
-  });
+  const registration = navigator.serviceWorker.register("sw.js").catch(() => null);   // échec : l'appli reste utilisable en ligne
+
+  /* Mise à jour automatique : le nouveau service worker prend la main dès qu'il est installé (sw.js), mais la page
+   * affichée garde l'ancien code. On la recharge donc seule, dès que le panier est vide, qu'aucune fenêtre n'est ouverte
+   * et qu'on n'est pas en train de taper dans un champ ; sinon on patiente et on réessaie toutes les 2 s. */
+  let reloading = false;
+  const canReload = () => {
+    const ae = document.activeElement;
+    const typing = ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && /^(text|tel|email|password|search|number)$/.test(ae.type)));
+    return cart.length === 0 && !document.querySelector("dialog[open]") && !typing;
+  };
+  async function reloadWhenIdle(announced) {
+    if (reloading) return;
+    if (!canReload()) {
+      if (!announced) toast("Mise à jour prête : elle s'installera dès que le panier est vide");
+      setTimeout(() => reloadWhenIdle(true), 2000);
+      return;
+    }
+    reloading = true;
+    try { await DB.flush(); } catch (e) { /* ignoré */ }          // les saisies en cours d'écriture sont terminées avant de recharger
+    toast("Mise à jour installée : redémarrage…");
+    setTimeout(() => location.reload(), 700);
+  }
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) reloadWhenIdle(false); });
+
+  /* On cherche une nouvelle version au retour dans l'appli, puis toutes les 30 min si elle reste ouverte. */
+  const checkUpdate = () => registration.then((r) => r && r.update().catch(() => { /* hors ligne */ }));
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(); });
+  setInterval(checkUpdate, 30 * 60 * 1000);
 }
 
 /* ---------- Pas de saisie automatique ----------
